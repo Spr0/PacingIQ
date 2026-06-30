@@ -1,0 +1,10 @@
+# Netlify build + SPA routing config for PacingIQ
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Single page app: route all paths to index.html so React Router handles them
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
