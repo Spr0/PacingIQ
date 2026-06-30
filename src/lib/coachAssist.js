@@ -79,20 +79,48 @@ export function buildContext(rollup, observations, assessments, coachName) {
   return lines.join('\n');
 }
 
-// Calls the serverless function. Throws if it is unavailable or errors, so the
-// caller can fall back to a local draft.
+// Calls the serverless function. On failure it throws an Error whose `reachable`
+// flag distinguishes two cases:
+//   reachable === false  the function is not deployed / not running (e.g. the
+//                        plain vite preview). The caller should fall back to a
+//                        local demo draft.
+//   reachable === true   the function ran but failed (bad or missing
+//                        ANTHROPIC_API_KEY / ANTHROPIC_MODEL, API error). This is
+//                        a config error and should be surfaced loudly, not masked.
 export async function generateDraft(kind, context) {
-  const res = await fetch('/.netlify/functions/coach-assist', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind, context }),
-  });
-  const ct = res.headers.get('content-type') || '';
-  if (!res.ok || !ct.includes('application/json')) {
-    throw new Error(`Function unavailable (${res.status})`);
+  let res;
+  try {
+    res = await fetch('/.netlify/functions/coach-assist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, context }),
+    });
+  } catch {
+    const err = new Error('Coaching assistant function is not reachable.');
+    err.reachable = false;
+    throw err;
   }
+
+  const ct = res.headers.get('content-type') || '';
+  // No JSON body (for example the SPA catch-all served index.html) means the
+  // function is not deployed here.
+  if (!ct.includes('application/json')) {
+    const err = new Error('Coaching assistant function is not deployed here.');
+    err.reachable = false;
+    throw err;
+  }
+
   const data = await res.json();
-  if (!data.text) throw new Error(data.error || 'Empty response');
+  if (!res.ok || data.error) {
+    const err = new Error(data.detail || data.error || `Request failed (${res.status})`);
+    err.reachable = true;
+    throw err;
+  }
+  if (!data.text) {
+    const err = new Error('The model returned an empty response.');
+    err.reachable = true;
+    throw err;
+  }
   return data.text;
 }
 

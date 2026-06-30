@@ -46,10 +46,18 @@ export default function CoachAssistant({ rollup, observations, assessments, onCl
       const text = await generateDraft(kind, context);
       setDraft(text);
       setSource('ai');
-    } catch {
-      // Function not reachable (offline preview). Fall back to a local draft.
-      setDraft(localDraft(kind, rollup, observations, assessments, user.name));
-      setSource('demo');
+    } catch (e) {
+      if (e.reachable) {
+        // The function ran but failed. Surface the config error loudly rather
+        // than masking it with a demo draft.
+        setError(
+          `Live generation failed: ${e.message} Check ANTHROPIC_API_KEY and ANTHROPIC_MODEL in the Netlify site settings.`
+        );
+      } else {
+        // Function not deployed here (for example the vite preview). Fall back.
+        setDraft(localDraft(kind, rollup, observations, assessments, user.name));
+        setSource('demo');
+      }
     } finally {
       setLoading(false);
     }
