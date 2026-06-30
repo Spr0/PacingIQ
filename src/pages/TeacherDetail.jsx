@@ -9,7 +9,10 @@ import { Link, useParams } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { pacingStatus, recommendedAction, isOverdue } from '../lib/intelligence.js';
 import { formatDate, daysUntil } from '../lib/dates.js';
+import { can } from '../lib/permissions.js';
 import { Card, StatusBadge, RiskBadge, Badge, Empty, Modal } from '../components/ui.jsx';
+import { Icon } from '../components/icons.jsx';
+import CoachAssistant from '../components/CoachAssistant.jsx';
 
 const TABS = [
   'Overview',
@@ -24,10 +27,11 @@ const ENGAGEMENT_TONE = { Low: 'red', Medium: 'yellow', High: 'green' };
 
 export default function TeacherDetail() {
   const { id } = useParams();
-  const { rollupFor, observations, pacingEntries, assessments, interventions } = useApp();
+  const { rollupFor, observations, pacingEntries, assessments, interventions, roleKey } = useApp();
   const rollup = rollupFor(id);
 
   const [tab, setTab] = useState('Overview');
+  const [aiOpen, setAiOpen] = useState(false);
 
   const myObservations = useMemo(
     () =>
@@ -84,13 +88,20 @@ export default function TeacherDetail() {
         <Link to="/teachers" className="muted small">
           Back to roster
         </Link>
-        <div>
-          <h1 style={{ marginBottom: 4 }}>{teacher.name}</h1>
-          <p className="muted">
-            {[teacher.subject, teacher.gradeLevel ? `Grade ${teacher.gradeLevel}` : null, teacher.assignedAdmin]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
+        <div className="row row--between row--wrap" style={{ gap: 12 }}>
+          <div>
+            <h1 style={{ marginBottom: 4 }}>{teacher.name}</h1>
+            <p className="muted">
+              {[teacher.subject, teacher.gradeLevel ? `Grade ${teacher.gradeLevel}` : null, teacher.assignedAdmin]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+          </div>
+          {can(roleKey, 'write') && (
+            <button className="btn btn--primary" onClick={() => setAiOpen(true)}>
+              <Icon name="sparkle" /> AI assist
+            </button>
+          )}
         </div>
         <div className="row row--wrap" style={{ gap: 8 }}>
           <RiskBadge risk={risk} />
@@ -131,6 +142,15 @@ export default function TeacherDetail() {
       {tab === 'Assessments' && <AssessmentsTab assessments={myAssessments} />}
       {tab === 'Interventions' && <InterventionsTab interventions={myInterventions} />}
       {tab === 'Coaching Notes' && <CoachingNotesTab observations={myObservations} />}
+
+      {aiOpen && (
+        <CoachAssistant
+          rollup={rollup}
+          observations={myObservations}
+          assessments={myAssessments}
+          onClose={() => setAiOpen(false)}
+        />
+      )}
     </div>
   );
 }

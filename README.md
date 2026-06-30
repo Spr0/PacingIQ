@@ -58,12 +58,30 @@ Switch roles from the top bar. There is no real login in the demo.
 - **Principal / Assistant Principal** — view everything and run reports;
   cannot edit coaching notes; can record the leadership review on interventions.
 
-## Fast-follow (not in this slice)
+## AI Coaching Assistant
 
-AI features (lesson/calendar reader, coaching assistant, critique), the weekly
-coach intelligence email, Google Classroom and Google Calendar integration, and
-file storage. These are stubbed out so the first deploy is a pure static app
-with no API keys required.
+The teacher record has an **AI assist** action (coach role) that drafts coaching
+summaries, principal reports, follow-up emails, meeting agendas, and action
+plans, grounded in the teacher's own records. Every draft is editable and
+**requires human approval before it is saved**; nothing is sent automatically.
+
+Live generation runs through a Netlify Function (`netlify/functions/coach-assist.js`)
+that calls the Anthropic API. Set two environment variables in the Netlify site
+settings:
+
+- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_MODEL` (for example `claude-opus-4-8`; there is no default, so a
+  missing value fails loudly in config rather than silently in production)
+
+In the plain `npm run dev` preview the function does not run, so the assistant
+falls back to a locally templated draft (clearly labeled "demo"). To exercise
+the live function locally, run `netlify dev` with the env vars set.
+
+## Fast-follow (not yet built)
+
+The weekly intelligence email is built (see Weekly Email). Still to come: the AI
+lesson/calendar reader, Google Classroom and Google Calendar integration, and
+file storage.
 
 ## Architecture notes
 
