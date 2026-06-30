@@ -7,6 +7,7 @@ import Observations from './pages/Observations.jsx';
 import Pacing from './pages/Pacing.jsx';
 import Interventions from './pages/Interventions.jsx';
 import Report from './pages/Report.jsx';
+import WeeklyEmail from './pages/WeeklyEmail.jsx';
 import AuditLog from './pages/AuditLog.jsx';
 
 export default function App() {
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="pacing" element={<Pacing />} />
         <Route path="interventions" element={<Interventions />} />
         <Route path="report" element={<Report />} />
+        <Route path="weekly" element={<WeeklyEmail />} />
         <Route path="audit" element={<AuditLog />} />
       </Route>
     </Routes>

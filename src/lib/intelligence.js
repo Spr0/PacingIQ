@@ -205,19 +205,19 @@ export function recommendedAction(rollup) {
     return 'Advance the open intervention plan and complete follow-up observation';
   }
   if (rollup.pacingStatus === 'red') {
-    return 'Open an intervention case — more than 3 days behind pace';
+    return 'Open an intervention case, more than 3 days behind pace';
   }
   if (rollup.overdueActions.length > 0) {
     return `Close ${rollup.overdueActions.length} overdue action item(s)`;
   }
   if (rollup.daysSinceObservation == null || rollup.daysSinceObservation > SEEN_WINDOW_DAYS) {
-    return 'Schedule an observation — outside the 14 day window';
+    return 'Schedule an observation, outside the 14 day window';
   }
   if (rollup.assessmentConcern) {
     return 'Review recent unit-test results with the teacher';
   }
   if (rollup.pacingStatus === 'yellow') {
-    return 'Check in on pacing — 1 to 3 days behind';
+    return 'Check in on pacing, 1 to 3 days behind';
   }
-  return 'On track — maintain regular cadence';
+  return 'On track, maintain regular cadence';
 }

@@ -11,6 +11,7 @@ const NAV = [
   { to: '/pacing', label: 'Pacing', icon: 'pacing' },
   { to: '/interventions', label: 'Interventions', icon: 'interventions' },
   { to: '/report', label: 'Impact Report', icon: 'report' },
+  { to: '/weekly', label: 'Weekly Email', icon: 'mail' },
   { to: '/audit', label: 'Audit Log', icon: 'audit' },
 ];
 
@@ -20,6 +21,7 @@ const TITLES = {
   '/pacing': ['Pacing', 'Weekly pacing status and exceptions'],
   '/interventions': ['Interventions', 'Cases, action plans, and follow-up'],
   '/report': ['Coaching Impact Report', 'Single-page school health view'],
+  '/weekly': ['Weekly Email', 'Tuesday coach intelligence digest'],
   '/audit': ['Audit Log', 'Activity and change history'],
 };
 

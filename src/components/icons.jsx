@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 // Inline SVG icon set. Stroke icons inherit currentColor so they tint with the
 // surrounding text. Used by the sidebar nav, topbar, and dashboard cards.
 
@@ -17,6 +19,7 @@ const PATHS = {
   interventions: <><path d="M12 2.5 4 5.5v5c0 5 3.4 8 8 9.8 4.6-1.8 8-4.8 8-9.8v-5L12 2.5Z" /><path d="M9.2 11.8l1.9 1.9 3.7-3.9" /></>,
   report: <><rect x="3.5" y="3" width="17" height="18" rx="2" /><path d="M8 14v3M12 11v6M16 8v9" /></>,
   audit: <><path d="M5 4.5h11l3 3V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z" /><path d="M8.5 11h7M8.5 14.5h7M8.5 7.5h4" /></>,
+  mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3.5 7 8.5 6 8.5-6" /></>,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.2-3.2" /></>,
   sparkle: <><path d="M12 3l1.8 4.7L18.5 9l-4.7 1.8L12 15l-1.8-4.2L5.5 9l4.7-1.3L12 3Z" /><path d="M18.5 15.5l.8 2 .2.8" /></>,
   bell: <><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6Z" /><path d="M10 19a2 2 0 0 0 4 0" /></>,
@@ -36,10 +39,21 @@ export function Icon({ name }) {
   );
 }
 
-// Sierra "Rams" emblem. A stylized ram head, dark on the gold brandmark disc.
-// This is a placeholder mark (per the design kit notes); swap for the official
-// vector ram logo when available.
+// Sierra Rams emblem. Uses the official ram logo from public/sierra-rams-logo.png
+// when present, and falls back to a stylized placeholder ram (dark on the gold
+// brandmark disc) until the file is added.
 export function Brandmark() {
+  const [failed, setFailed] = useState(false);
+  if (!failed) {
+    return (
+      <img
+        className="brandmark__img"
+        src="/sierra-rams-logo.png"
+        alt="Sierra Rams"
+        onError={() => setFailed(true)}
+      />
+    );
+  }
   return (
     <svg viewBox="0 0 24 24" aria-label="Sierra Rams" role="img">
       <path
