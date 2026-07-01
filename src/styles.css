@@ -266,12 +266,14 @@ h1, h2, h3, h4, h5 {
 
 /* ---------- Stat cards (dashboard, with status accent bar) ---------- */
 .statcard {
-  position: relative; overflow: hidden;
+  /* No overflow:hidden here: it would clip the info tooltip that opens above a
+     label. The colored left bar rounds its own corners instead (below). */
+  position: relative;
   background: var(--surface-card); border: 1px solid var(--border-subtle);
   border-radius: var(--radius-xl); box-shadow: var(--shadow-sm);
   padding: 16px 18px 16px 20px;
 }
-.statcard::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--slate-300); }
+.statcard::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--slate-300); border-top-left-radius: var(--radius-xl); border-bottom-left-radius: var(--radius-xl); }
 .statcard--green::before { background: var(--green-500); }
 .statcard--amber::before { background: var(--amber-500); }
 .statcard--red::before   { background: var(--red-500); }
@@ -292,7 +294,9 @@ h1, h2, h3, h4, h5 {
 .display-title { font-family: var(--font-display); font-size: var(--text-display-lg); font-weight: var(--fw-bold); color: var(--text-strong); letter-spacing: var(--ls-tight); line-height: var(--lh-tight); }
 
 /* ---------- Priority cards ---------- */
-.pcard { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); overflow: hidden; }
+/* No overflow:hidden: the body is padded (content never reaches the rounded
+   corners), and clipping would hide info tooltips opened from the card title. */
+.pcard { background: var(--surface-card); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); box-shadow: var(--shadow-sm); }
 .pcard--accent-red { border-top: 3px solid var(--red-500); }
 .pcard--accent-amber { border-top: 3px solid var(--amber-500); }
 .pcard--accent-brand { border-top: 3px solid var(--brand); }
