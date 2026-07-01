@@ -12,13 +12,15 @@
 // `reachable` flag distinguishes two cases, matching the coach-assist client:
 //   reachable === false  the function is not deployed / not running.
 //   reachable === true   the function ran but failed (config or API error).
-export async function analyzeLessonPlan(lessonText, context) {
+// `document` is an optional { fileBase64, mediaType } for the PDF-upload path;
+// when present the function hands it to the model as a native document block.
+export async function analyzeLessonPlan(lessonText, context, document) {
   let res;
   try {
     res = await fetch('/.netlify/functions/lesson-reader', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lessonText, context }),
+      body: JSON.stringify({ lessonText, context, document }),
     });
   } catch {
     const err = new Error('Lesson plan reader function is not reachable.');

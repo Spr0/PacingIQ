@@ -88,10 +88,12 @@ the live function locally, run `netlify dev` with the env vars set.
 ## AI Lesson Plan Reader
 
 From a teacher record, **Read Lesson Plan with AI** (coach role) reads a pasted
-lesson plan and extracts the unit, lesson, standard, objective, assessment
-references, and any pacing concerns. The coach reviews and edits every field,
-then **Apply to this week's pacing** writes it to that teacher's (and subject's,
-if multi-subject) current-week pacing entry. Nothing is applied automatically.
+lesson plan (or an uploaded PDF, Excel, or CSV file, handled the same way as the
+Pacing Calendar Reader) and extracts the unit, lesson, standard, objective,
+assessment references, and any pacing concerns. The coach reviews and edits
+every field, then **Apply to this week's pacing** writes it to that teacher's
+(and subject's, if multi-subject) current-week pacing entry. Nothing is applied
+automatically.
 
 Runs through `netlify/functions/lesson-reader.js` (same `ANTHROPIC_API_KEY` /
 `ANTHROPIC_MODEL` config as the Coaching Assistant), with a locally templated

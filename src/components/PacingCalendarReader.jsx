@@ -15,7 +15,7 @@ import { Modal, Field } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { useApp } from '../state/AppContext.jsx';
 import { analyzeCalendar, localCalendarAnalysis } from '../lib/calendarReader.js';
-import { extractCalendarFile, CALENDAR_FILE_ACCEPT } from '../lib/fileExtract.js';
+import { extractUploadedFile, UPLOAD_FILE_ACCEPT } from '../lib/fileExtract.js';
 
 function rowId() {
   return 'row_' + Math.random().toString(36).slice(2, 9);
@@ -53,7 +53,7 @@ export default function PacingCalendarReader({ onClose }) {
     setImportedNote(null);
     setExtracting(true);
     try {
-      const out = await extractCalendarFile(file);
+      const out = await extractUploadedFile(file);
       if (out.kind === 'pdf') {
         setFileDoc({ fileBase64: out.fileBase64, mediaType: out.mediaType });
         setFileName(out.name);
@@ -231,7 +231,7 @@ export default function PacingCalendarReader({ onClose }) {
           <input
             className="input"
             type="file"
-            accept={CALENDAR_FILE_ACCEPT}
+            accept={UPLOAD_FILE_ACCEPT}
             onChange={handleFile}
             disabled={extracting}
           />

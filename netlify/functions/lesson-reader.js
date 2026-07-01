@@ -1,8 +1,9 @@
 // ---------------------------------------------------------------------------
 // AI Lesson Plan Reader — Netlify Function.
 //
-// Reads a lesson plan (pasted text) and extracts the unit, lesson, standard,
-// objective, assessment references, and any pacing concerns. The model is
+// Reads a lesson plan (pasted/extracted text or an attached PDF) and extracts
+// the unit, lesson, standard, objective, assessment references, and any pacing
+// concerns. The model is
 // read from process.env.ANTHROPIC_MODEL with no fallback, so a missing config
 // fails loudly rather than silently shipping a wrong model.
 //
@@ -10,9 +11,10 @@
 // to a teacher's pacing record. Nothing is sent anywhere from this function.
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the lesson plan text provided
-and extract what it covers. Use ONLY the facts present in the lesson plan text. Do not invent
-units, standards, or dates that are not stated or clearly implied.
+const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the lesson plan provided (as
+pasted plain text or an attached PDF document) and extract what it covers. Use ONLY the facts
+present in the lesson plan. Do not invent units, standards, or dates that are not stated or clearly
+implied.
 
 Return ONLY valid JSON, no markdown fences, no prose, matching exactly this shape:
 {
@@ -31,14 +33,31 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { lessonText, context } = JSON.parse(event.body || '{}');
-    if (!lessonText || !lessonText.trim()) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'lessonText is required' }) };
+    const { lessonText, context, document } = JSON.parse(event.body || '{}');
+    const hasText = lessonText && lessonText.trim();
+    if (!hasText && !(document && document.fileBase64)) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'lessonText or document is required' }) };
     }
 
-    const userMessage = context
-      ? `Context: ${context}\n\nLesson plan text:\n${lessonText}`
-      : `Lesson plan text:\n${lessonText}`;
+    // PDF-upload path: hand the document to the model as a native block. Text
+    // path: pass the pasted/extracted lesson plan as a plain string.
+    let userContent;
+    if (document && document.fileBase64) {
+      userContent = [
+        {
+          type: 'document',
+          source: { type: 'base64', media_type: document.mediaType || 'application/pdf', data: document.fileBase64 },
+        },
+        {
+          type: 'text',
+          text: `${context ? `Context: ${context}\n\n` : ''}The attached document is a lesson plan. Extract what it covers as specified.`,
+        },
+      ];
+    } else {
+      userContent = context
+        ? `Context: ${context}\n\nLesson plan text:\n${lessonText}`
+        : `Lesson plan text:\n${lessonText}`;
+    }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -51,7 +70,7 @@ exports.handler = async (event) => {
         model: process.env.ANTHROPIC_MODEL,
         max_tokens: 800,
         system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMessage }],
+        messages: [{ role: 'user', content: userContent }],
       }),
     });
 

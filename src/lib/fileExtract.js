@@ -1,7 +1,8 @@
 // ---------------------------------------------------------------------------
-// Client-side file extraction for the Pacing Calendar Reader.
+// Client-side file extraction shared by the AI readers (Pacing Calendar and
+// Lesson Plan).
 //
-// Turns an uploaded pacing calendar into something the AI reader can consume:
+// Turns an uploaded document into something the AI readers can consume:
 //   - CSV / TSV / TXT  -> read straight to text (no dependency)
 //   - Excel (.xlsx/.xls) -> parsed to CSV text with SheetJS, loaded on demand
 //       from its official ESM CDN so nothing is added to the bundle or lockfile
@@ -12,9 +13,9 @@
 // demo fallback); PDF-kind results require the live model to read the document.
 // ---------------------------------------------------------------------------
 
-export const MAX_CALENDAR_FILE_BYTES = 4 * 1024 * 1024; // 4MB, well under the function body limit
+export const MAX_UPLOAD_FILE_BYTES = 4 * 1024 * 1024; // 4MB, well under the function body limit
 
-export const CALENDAR_FILE_ACCEPT =
+export const UPLOAD_FILE_ACCEPT =
   '.csv,.tsv,.txt,.xlsx,.xls,.pdf,text/csv,text/tab-separated-values,text/plain,' +
   'application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,' +
   'application/vnd.ms-excel';
@@ -67,8 +68,8 @@ function readAsBase64(file) {
 }
 
 // Resolves to { kind: 'text', text, name } or { kind: 'pdf', fileBase64, mediaType, name }.
-export async function extractCalendarFile(file) {
-  if (file.size > MAX_CALENDAR_FILE_BYTES) {
+export async function extractUploadedFile(file) {
+  if (file.size > MAX_UPLOAD_FILE_BYTES) {
     throw new Error(`${file.name} is larger than 4MB. Trim it, or paste the text instead.`);
   }
 
