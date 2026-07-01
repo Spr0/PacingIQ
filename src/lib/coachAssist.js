@@ -87,13 +87,13 @@ export function buildContext(rollup, observations, assessments, coachName) {
 //   reachable === true   the function ran but failed (bad or missing
 //                        ANTHROPIC_API_KEY / ANTHROPIC_MODEL, API error). This is
 //                        a config error and should be surfaced loudly, not masked.
-export async function generateDraft(kind, context) {
+export async function generateDraft(kind, context, language = 'en') {
   let res;
   try {
     res = await fetch('/.netlify/functions/coach-assist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, context }),
+      body: JSON.stringify({ kind, context, language }),
     });
   } catch {
     const err = new Error('Coaching assistant function is not reachable.');

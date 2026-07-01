@@ -42,16 +42,22 @@ plan: the concern, the most likely root cause, three agreed actions each with an
 owner, and a follow-up checkpoint. Use clear headings.${SHARED_STYLE}`,
 };
 
+const SPANISH_INSTRUCTION =
+  'Generate this content in Spanish (Español). Use professional, formal Spanish appropriate for a school/educational context.';
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method Not Allowed' };
   }
 
   try {
-    const { kind, context } = JSON.parse(event.body || '{}');
-    const system = SYSTEM_PROMPTS[kind];
+    const { kind, context, language } = JSON.parse(event.body || '{}');
+    let system = SYSTEM_PROMPTS[kind];
     if (!system) {
       return { statusCode: 400, body: JSON.stringify({ error: `Unknown kind: ${kind}` }) };
+    }
+    if (language === 'es') {
+      system = `${system}\n\n${SPANISH_INSTRUCTION}`;
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {

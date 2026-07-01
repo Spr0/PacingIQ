@@ -46,7 +46,9 @@ export default function CoachAssistant({ rollup, observations, assessments, init
   const saved = teacher.aiDrafts || [];
 
   const [kind, setKind] = useState(initialKind || 'summary');
+  const [language, setLanguage] = useState('en'); // 'en' | 'es'
   const [draft, setDraft] = useState('');
+  const [draftLanguage, setDraftLanguage] = useState('en');
   const [source, setSource] = useState(null); // 'ai' | 'demo'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -58,9 +60,10 @@ export default function CoachAssistant({ rollup, observations, assessments, init
     setSavedNote(null);
     const context = buildContext(rollup, observations, assessments, user.name);
     try {
-      const text = await generateDraft(kind, context);
+      const text = await generateDraft(kind, context, language);
       setDraft(text);
       setSource('ai');
+      setDraftLanguage(language);
     } catch (e) {
       if (e.reachable) {
         // The function ran but failed. Surface the config error loudly rather
@@ -70,8 +73,11 @@ export default function CoachAssistant({ rollup, observations, assessments, init
         );
       } else {
         // Function not deployed here (for example the vite preview). Fall back.
+        // The demo template is English-only, so the badge reflects that regardless
+        // of the language toggle.
         setDraft(localDraft(kind, rollup, observations, assessments, user.name));
         setSource('demo');
+        setDraftLanguage('en');
       }
     } finally {
       setLoading(false);
@@ -85,6 +91,7 @@ export default function CoachAssistant({ rollup, observations, assessments, init
       label: labelFor(kind),
       text: draft,
       source,
+      language: draftLanguage,
       approvedBy: user.name,
       approvedAt: new Date().toISOString(),
     };
@@ -140,6 +147,35 @@ export default function CoachAssistant({ rollup, observations, assessments, init
           ))}
         </div>
 
+        {/* Language selector */}
+        <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+          <span className="small muted">Language</span>
+          <div className="pill-tabs" style={{ marginBottom: 0 }}>
+            <button
+              className={language === 'en' ? 'active' : undefined}
+              onClick={() => {
+                setLanguage('en');
+                setDraft('');
+                setSource(null);
+                setSavedNote(null);
+              }}
+            >
+              English
+            </button>
+            <button
+              className={language === 'es' ? 'active' : undefined}
+              onClick={() => {
+                setLanguage('es');
+                setDraft('');
+                setSource(null);
+                setSavedNote(null);
+              }}
+            >
+              Español
+            </button>
+          </div>
+        </div>
+
         {EXPLANATIONS[kind] && (
           <p className="muted small" style={{ margin: 0 }}>
             {EXPLANATIONS[kind]}
@@ -167,9 +203,14 @@ export default function CoachAssistant({ rollup, observations, assessments, init
         {draft && (
           <div className="stack" style={{ gap: 8 }}>
             <div className="row row--between row--wrap" style={{ gap: 8 }}>
-              <span className="pill pill--amber">
-                <span className="dot" /> Draft, pending approval
-              </span>
+              <div className="row row--wrap" style={{ gap: 8 }}>
+                <span className="pill pill--amber">
+                  <span className="dot" /> Draft, pending approval
+                </span>
+                <span className="pill pill--neutral">
+                  {draftLanguage === 'es' ? '🇪🇸 Español' : '🇺🇸 English'}
+                </span>
+              </div>
               <span className="small muted">
                 {source === 'ai' ? 'Generated live by Claude' : 'Demo draft (offline). Live AI runs on the deployed site.'}
               </span>
@@ -206,6 +247,7 @@ export default function CoachAssistant({ rollup, observations, assessments, init
                   </div>
                   <div className="row row--wrap" style={{ gap: 8, marginBottom: 4 }}>
                     <span className="badge badge--brand">{d.label}</span>
+                    {d.language === 'es' && <span className="pill pill--neutral">🇪🇸 Español</span>}
                   </div>
                   <div className="small" style={{ whiteSpace: 'pre-wrap' }}>
                     {d.text.length > 240 ? `${d.text.slice(0, 240)}...` : d.text}
