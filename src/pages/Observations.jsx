@@ -25,6 +25,14 @@ import { Card, Badge, Empty, Field, Modal } from '../components/ui.jsx';
 const ENGAGEMENT_LEVELS = ['Low', 'Medium', 'High'];
 const ACTION_STATUSES = ['Open', 'In Progress', 'Complete'];
 
+// Rank engagement so the column sorts by intensity (Low -> High), not
+// alphabetically. Missing values sort below any set level.
+const ENGAGEMENT_RANK = { Low: 1, Medium: 2, High: 3 };
+
+// The direction a column starts in the first time it is clicked: dates newest
+// first, teachers A to Z, engagement highest first.
+const DEFAULT_SORT_DIR = { date: 'desc', teacher: 'asc', engagement: 'desc' };
+
 // The units of an observation the coach can selectively share with the observed
 // teacher. Leadership can share the whole note (stored as `whole`) or any subset
 // of these (stored as `sections`). The three feedback fields are individually
@@ -96,6 +104,11 @@ export default function Observations() {
   const [removedKeys, setRemovedKeys] = useState([]);
 
   const [viewId, setViewId] = useState(null);
+  const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
+
+  function toggleSort(key) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: DEFAULT_SORT_DIR[key] }));
+  }
 
   const teacherName = useMemo(() => {
     const map = {};
@@ -117,12 +130,27 @@ export default function Observations() {
   }, [rollups]);
 
   const rows = useMemo(() => {
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    const compare = (a, b) => {
+      if (sort.key === 'teacher') {
+        const av = (teacherName[a.teacherId] || '').toLowerCase();
+        const bv = (teacherName[b.teacherId] || '').toLowerCase();
+        return av.localeCompare(bv) * dir;
+      }
+      if (sort.key === 'engagement') {
+        return ((ENGAGEMENT_RANK[a.engagementLevel] || 0) - (ENGAGEMENT_RANK[b.engagementLevel] || 0)) * dir;
+      }
+      // date
+      const av = a.date || '';
+      const bv = b.date || '';
+      return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
+    };
     return observations
       .filter((o) => (teacherFilter === 'all' ? true : o.teacherId === teacherFilter))
       .filter((o) => (engagementFilter === 'all' ? true : o.engagementLevel === engagementFilter))
       .slice()
-      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [observations, teacherFilter, engagementFilter]);
+      .sort(compare);
+  }, [observations, teacherFilter, engagementFilter, sort, teacherName]);
 
   const viewing = viewId ? observations.find((o) => o.id === viewId) || null : null;
 
@@ -368,11 +396,11 @@ export default function Observations() {
           <table className="table">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Teacher</th>
+                <SortHeader label="Date" sortKey="date" sort={sort} onSort={toggleSort} />
+                <SortHeader label="Teacher" sortKey="teacher" sort={sort} onSort={toggleSort} />
                 <th>Lesson Observed</th>
                 <th>Standard</th>
-                <th>Engagement</th>
+                <SortHeader label="Engagement" sortKey="engagement" sort={sort} onSort={toggleSort} />
                 <th>Follow-up</th>
                 <th>Actions</th>
               </tr>
@@ -683,6 +711,32 @@ export default function Observations() {
         </Modal>
       )}
     </div>
+  );
+}
+
+// Clickable, keyboard-operable sortable column header. Shows the active
+// direction, or a neutral arrow when another column is the sort key.
+function SortHeader({ label, sortKey, sort, onSort }) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      className="th-sort"
+      tabIndex={0}
+      role="columnheader"
+      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      onClick={() => onSort(sortKey)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSort(sortKey);
+        }
+      }}
+    >
+      {label}
+      <span className={`th-sort__arrow${active ? ' is-active' : ''}`} aria-hidden="true">
+        {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </th>
   );
 }
 

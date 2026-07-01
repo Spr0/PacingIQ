@@ -355,6 +355,11 @@ h1, h2, h3, h4, h5 {
 /* ---------- Tables ---------- */
 .table { width: 100%; border-collapse: collapse; font-size: var(--text-body-sm); }
 .table th { text-align: left; font-size: var(--text-micro); letter-spacing: var(--ls-wide); text-transform: uppercase; color: var(--text-subtle); font-weight: var(--fw-bold); padding: 10px 16px; border-bottom: 1px solid var(--border-subtle); }
+.table th.th-sort { cursor: pointer; user-select: none; white-space: nowrap; }
+.table th.th-sort:hover { color: var(--text-strong); }
+.table th.th-sort:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.th-sort__arrow { margin-left: 5px; font-size: 9px; color: var(--text-disabled, var(--text-subtle)); }
+.th-sort__arrow.is-active { color: var(--text-strong); }
 .table td { padding: 11px 16px; border-bottom: 1px solid var(--slate-100); vertical-align: middle; color: var(--text-body); }
 .table tr:last-child td { border-bottom: 0; }
 .table tbody tr:hover { background: var(--surface-hover); }
