@@ -12,6 +12,14 @@ import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
 import { formatDate, isoDate } from '../lib/dates.js';
+import { genId } from '../data/store.js';
+import {
+  MAX_ATTACHMENT_BYTES,
+  ALLOWED_ATTACHMENT_TYPES,
+  uploadAttachment,
+  deleteAttachment,
+  attachmentUrl,
+} from '../lib/attachments.js';
 import { Card, Badge, Empty, Field, Modal } from '../components/ui.jsx';
 
 const ENGAGEMENT_LEVELS = ['Low', 'Medium', 'High'];
@@ -26,8 +34,12 @@ function engagementTone(level) {
   return 'neutral';
 }
 
+// Observation records are assigned an id up front (rather than at save time)
+// so newly attached files have a stable observationId to file under in blob
+// storage before the record itself has ever been persisted.
 function emptyForm() {
   return {
+    id: genId('obs'),
     teacherId: '',
     date: isoDate(),
     time: '',
@@ -47,20 +59,6 @@ function emptyForm() {
   };
 }
 
-// Demo file storage: attachments are embedded as base64 data URLs in
-// localStorage. Real blob storage (S3/Dataverse/etc.) is a re-platform
-// concern, so uploads are capped to keep the browser's storage usable.
-const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 function newActionItem() {
   return { id: nid(), description: '', owner: '', dueDate: '', status: 'Open' };
 }
@@ -76,6 +74,9 @@ export default function Observations() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [attachmentError, setAttachmentError] = useState(null);
+  // Blob keys uploaded during this form session that aren't attached to a
+  // saved record yet. Cleaned up if the form is cancelled before saving.
+  const [pendingKeys, setPendingKeys] = useState([]);
 
   const [viewId, setViewId] = useState(null);
 
@@ -130,36 +131,51 @@ export default function Observations() {
 
   async function handleFiles(fileList) {
     const files = Array.from(fileList || []);
+    if (!files.length) return;
+
+    if (!form.teacherId) {
+      setAttachmentError('Select a teacher before adding attachments.');
+      return;
+    }
+
     const accepted = [];
     const rejected = [];
     for (const file of files) {
-      if (file.size > MAX_ATTACHMENT_BYTES) {
-        rejected.push(file.name);
+      if (!ALLOWED_ATTACHMENT_TYPES.includes(file.type)) {
+        rejected.push(`${file.name} (unsupported type)`);
         continue;
       }
-      const dataUrl = await readFileAsDataUrl(file);
-      accepted.push({
-        id: nid(),
-        name: file.name,
-        type: file.type || 'application/octet-stream',
-        sizeKB: Math.max(1, Math.round(file.size / 1024)),
-        dataUrl,
-        uploadedAt: isoDate(),
-      });
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        rejected.push(`${file.name} (too large)`);
+        continue;
+      }
+      try {
+        const uploaded = await uploadAttachment(file, form.teacherId, form.id);
+        accepted.push({ id: nid(), ...uploaded });
+        setPendingKeys((keys) => [...keys, uploaded.key]);
+      } catch (err) {
+        rejected.push(`${file.name} (${err.message})`);
+      }
     }
     if (accepted.length) {
       setForm((f) => ({ ...f, attachments: [...(f.attachments || []), ...accepted] }));
     }
-    setAttachmentError(rejected.length ? `Too large (max 2MB each): ${rejected.join(', ')}` : null);
+    setAttachmentError(rejected.length ? `Could not attach: ${rejected.join(', ')}` : null);
   }
 
   function removeAttachment(id) {
+    const attachment = (form.attachments || []).find((a) => a.id === id);
     setForm((f) => ({ ...f, attachments: (f.attachments || []).filter((a) => a.id !== id) }));
+    if (attachment && attachment.key) {
+      deleteAttachment(attachment.key);
+      setPendingKeys((keys) => keys.filter((k) => k !== attachment.key));
+    }
   }
 
   function openNew() {
     setEditingId(null);
     setForm(emptyForm());
+    setPendingKeys([]);
     setAttachmentError(null);
     setFormOpen(true);
   }
@@ -167,6 +183,7 @@ export default function Observations() {
   function openEdit(obs) {
     setEditingId(obs.id);
     setForm({
+      id: obs.id,
       teacherId: obs.teacherId || '',
       date: obs.date || isoDate(),
       time: obs.time || '',
@@ -190,16 +207,28 @@ export default function Observations() {
       followUpObservationDate: obs.followUpObservationDate || '',
       attachments: obs.attachments || [],
     });
+    setPendingKeys([]);
     setViewId(null);
     setAttachmentError(null);
     setFormOpen(true);
   }
 
-  function closeForm() {
+  // Resets the form UI only. Used after a successful save, where any pending
+  // attachment keys are now referenced by the saved record and must not be
+  // deleted.
+  function resetFormUI() {
     setFormOpen(false);
     setEditingId(null);
     setForm(emptyForm());
+    setPendingKeys([]);
     setAttachmentError(null);
+  }
+
+  // Cancels the form: newly uploaded attachments that were never saved to a
+  // record would otherwise sit orphaned in blob storage forever.
+  function closeForm() {
+    pendingKeys.forEach((key) => deleteAttachment(key));
+    resetFormUI();
   }
 
   function canSave() {
@@ -217,7 +246,7 @@ export default function Observations() {
         'created observation'
       );
     }
-    closeForm();
+    resetFormUI();
   }
 
   function toggleShareWhole(obs, checked) {
@@ -569,12 +598,12 @@ export default function Observations() {
             </div>
 
             <div className="section-title">Attachments</div>
-            <Field label="Files" hint="PDFs, photos, student work, or forms · max 2MB each">
+            <Field label="Files" hint="PDF, JPG, PNG, or WEBP · max 10MB each">
               <input
                 className="input"
                 type="file"
                 multiple
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv"
+                accept="application/pdf,image/jpeg,image/png,image/webp"
                 onChange={(e) => {
                   handleFiles(e.target.files);
                   e.target.value = '';
@@ -670,7 +699,7 @@ function ViewBody({ obs, teacherName, writable, onShareWhole }) {
           {obs.attachments.map((a) => (
             <li key={a.id}>
               <span className="check check--done">📎</span>
-              <a href={a.dataUrl} download={a.name} target="_blank" rel="noreferrer">
+              <a href={attachmentUrl(a.key)} download={a.name} target="_blank" rel="noreferrer">
                 {a.name}
               </a>
               <span className="muted small" style={{ marginLeft: 8 }}>
