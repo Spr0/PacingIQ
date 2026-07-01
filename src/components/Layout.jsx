@@ -44,7 +44,10 @@ export default function Layout() {
   const openInterventions = interventions.filter((i) => i.status !== 'Complete').length;
 
   function onSearch(e) {
-    if (e.key === 'Enter') navigate('/teachers');
+    if (e.key === 'Enter') {
+      const term = q.trim();
+      navigate(term ? `/teachers?q=${encodeURIComponent(term)}` : '/teachers');
+    }
   }
 
   return (

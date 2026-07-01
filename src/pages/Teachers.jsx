@@ -4,8 +4,8 @@
 // teachers; every other role sees a read-only view.
 // ---------------------------------------------------------------------------
 
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
 import { pacingStatus } from '../lib/intelligence.js';
@@ -36,18 +36,37 @@ export default function Teachers() {
   const { rollups, db, roleKey } = useApp();
   const writable = can(roleKey, 'write');
 
-  const [query, setQuery] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [query, setQuery] = useState(searchParams.get('q') || '');
   const [statusFilter, setStatusFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
 
+  // Keep the field in sync when the header search (or a shared URL) sets ?q=.
+  useEffect(() => {
+    setQuery(searchParams.get('q') || '');
+  }, [searchParams]);
+
+  function onQueryChange(value) {
+    setQuery(value);
+    const next = new URLSearchParams(searchParams);
+    if (value.trim()) next.set('q', value);
+    else next.delete('q');
+    setSearchParams(next, { replace: true });
+  }
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    // Token-based AND search: every whitespace-separated term must match
+    // somewhere in the record, so out-of-order, cross-field queries work.
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return rollups.filter((r) => {
       const t = r.teacher;
-      if (q) {
-        const hay = `${t.name} ${t.subject}`.toLowerCase();
-        if (!hay.includes(q)) return false;
+      if (terms.length) {
+        const hay = [t.name, t.subject, t.gradeLevel, t.assignedAdmin, ...(t.subjects || [])]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!terms.every((term) => hay.includes(term))) return false;
       }
       if (statusFilter === 'behind' && r.daysBehind <= 0) return false;
       if (statusFilter === 'red' && r.risk.band !== 'red') return false;
@@ -86,9 +105,9 @@ export default function Teachers() {
         <div className="row" style={{ gap: 8 }}>
           <input
             className="input"
-            placeholder="Search by name or subject"
+            placeholder="Search name, subject, grade, or admin"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => onQueryChange(e.target.value)}
             style={{ minWidth: 240 }}
           />
           <select
