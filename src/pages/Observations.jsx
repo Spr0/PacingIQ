@@ -31,7 +31,7 @@ const ENGAGEMENT_RANK = { Low: 1, Medium: 2, High: 3 };
 
 // The direction a column starts in the first time it is clicked: dates newest
 // first, teachers A to Z, engagement highest first.
-const DEFAULT_SORT_DIR = { date: 'desc', teacher: 'asc', engagement: 'desc' };
+const DEFAULT_SORT_DIR = { date: 'desc', teacher: 'asc', engagement: 'desc', followUp: 'asc' };
 
 // The units of an observation the coach can selectively share with the observed
 // teacher. Leadership can share the whole note (stored as `whole`) or any subset
@@ -53,6 +53,68 @@ function engagementTone(level) {
   if (level === 'Medium') return 'brand';
   if (level === 'Low') return 'red';
   return 'neutral';
+}
+
+// Teachers have no email field in the demo data, so derive a plausible address
+// from the name. The composer's To field is editable, so this is only a default.
+function deriveTeacherEmail(name) {
+  const parts = (name || '').trim().split(/\s+/);
+  const first = (parts[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+  const last = (parts[parts.length - 1] || '').toLowerCase().replace(/[^a-z]/g, '');
+  const handle = [first, last].filter(Boolean).join('.') || 'teacher';
+  return `${handle}@sierrarams.org`;
+}
+
+// Build the default email body from an observation and the teacher's pacing
+// rollup: pacing, observation feedback, action steps, and the follow-up date.
+function buildTeacherEmail(obs, rollup, teacher, coachName) {
+  const first = (teacher.name || '').trim().split(/\s+/)[0] || 'there';
+  const lines = [`Hi ${first},`, ''];
+  lines.push(
+    `Thank you for having me in your ${teacher.subject || 'class'}. Here is a summary from our observation on ${formatDate(obs.date)} and where pacing stands.`
+  );
+
+  // Pacing info, per subject for multi-subject teachers.
+  if (rollup) {
+    lines.push('', 'Pacing:');
+    const subjects = rollup.multiSubject && rollup.pacingBySubject ? rollup.pacingBySubject : null;
+    if (subjects && subjects.length) {
+      subjects.forEach((sp) => {
+        const where = sp.pacing && sp.pacing.currentUnit ? ` in ${sp.pacing.currentUnit}` : '';
+        lines.push(`- ${sp.subject}: ${sp.daysBehind > 0 ? `${sp.daysBehind} day(s) behind` : 'on pace'}${where}.`);
+      });
+    } else {
+      const p = rollup.pacing;
+      const where = p && p.currentUnit ? ` in ${p.currentUnit}${p.currentLesson ? `, ${p.currentLesson}` : ''}` : '';
+      lines.push(`- ${rollup.daysBehind > 0 ? `${rollup.daysBehind} day(s) behind pace` : 'On pace'}${where}.`);
+    }
+  }
+
+  // Observation feedback.
+  const feedback = [];
+  if (obs.strengths) feedback.push(`Strengths: ${obs.strengths}`);
+  if (obs.areasForGrowth) feedback.push(`Areas for growth: ${obs.areasForGrowth}`);
+  if (obs.feedbackProvided) feedback.push(`Feedback: ${obs.feedbackProvided}`);
+  if (feedback.length) {
+    lines.push('', 'Observation feedback:');
+    feedback.forEach((f) => lines.push(`- ${f}`));
+  }
+
+  // Action steps.
+  const items = (obs.actionItems || []).filter((a) => a.description);
+  if (items.length) {
+    lines.push('', 'Action steps:');
+    items.forEach((a) =>
+      lines.push(`- ${a.description}${a.owner ? ` (owner: ${a.owner})` : ''}${a.dueDate ? ` by ${formatDate(a.dueDate)}` : ''}`)
+    );
+  }
+
+  if (obs.followUpObservationDate) {
+    lines.push('', `Next follow-up observation: ${formatDate(obs.followUpObservationDate)}.`);
+  }
+
+  lines.push('', 'Happy to talk through any of this. Reply here or stop by anytime.', '', 'Best,', coachName || 'Your Instructional Coach');
+  return lines.join('\n');
 }
 
 // Observation records are assigned an id up front (rather than at save time)
@@ -85,7 +147,7 @@ function newActionItem() {
 }
 
 export default function Observations() {
-  const { observations, teachers, rollups, db, roleKey } = useApp();
+  const { observations, teachers, rollups, db, roleKey, user } = useApp();
   const writable = can(roleKey, 'write');
 
   const [teacherFilter, setTeacherFilter] = useState('all');
@@ -108,6 +170,45 @@ export default function Observations() {
 
   function toggleSort(key) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: DEFAULT_SORT_DIR[key] }));
+  }
+
+  // Email-a-teacher composer. Pre-filled from the observation and the teacher's
+  // pacing rollup, then fully editable before it is handed to the mail client.
+  const [emailObs, setEmailObs] = useState(null);
+  const [emailDraft, setEmailDraft] = useState({ to: '', subject: '', body: '' });
+  const [emailCopied, setEmailCopied] = useState(false);
+
+  function openEmail(obs) {
+    const teacher = teachers.find((t) => t.id === obs.teacherId);
+    if (!teacher) return;
+    const rollup = rollups.find((r) => r.teacher.id === obs.teacherId) || null;
+    setEmailDraft({
+      to: teacher.email || deriveTeacherEmail(teacher.name),
+      subject: `Follow-up from your ${teacher.subject || 'class'} observation on ${formatDate(obs.date)}`,
+      body: buildTeacherEmail(obs, rollup, teacher, user && user.name),
+    });
+    setEmailCopied(false);
+    setEmailObs(obs);
+  }
+
+  function closeEmail() {
+    setEmailObs(null);
+    setEmailCopied(false);
+  }
+
+  function sendEmail() {
+    const { to, subject, body } = emailDraft;
+    window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  async function copyEmail() {
+    const { to, subject, body } = emailDraft;
+    try {
+      await navigator.clipboard.writeText(`To: ${to}\nSubject: ${subject}\n\n${body}`);
+      setEmailCopied(true);
+    } catch {
+      setEmailCopied(false);
+    }
   }
 
   const teacherName = useMemo(() => {
@@ -140,9 +241,12 @@ export default function Observations() {
       if (sort.key === 'engagement') {
         return ((ENGAGEMENT_RANK[a.engagementLevel] || 0) - (ENGAGEMENT_RANK[b.engagementLevel] || 0)) * dir;
       }
-      // date
-      const av = a.date || '';
-      const bv = b.date || '';
+      // date-like columns: Date and Follow-up. Blank dates always sort last.
+      const av = sort.key === 'followUp' ? a.followUpObservationDate : a.date;
+      const bv = sort.key === 'followUp' ? b.followUpObservationDate : b.date;
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
       return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
     };
     return observations
@@ -401,7 +505,7 @@ export default function Observations() {
                 <th>Lesson Observed</th>
                 <th>Standard</th>
                 <SortHeader label="Engagement" sortKey="engagement" sort={sort} onSort={toggleSort} />
-                <th>Follow-up</th>
+                <SortHeader label="Follow-up" sortKey="followUp" sort={sort} onSort={toggleSort} />
                 <th>Actions</th>
               </tr>
             </thead>
@@ -436,6 +540,11 @@ export default function Observations() {
                           Edit
                         </button>
                       )}
+                      {writable && (
+                        <button className="btn btn--sm btn--ghost" onClick={() => openEmail(o)}>
+                          Email
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -464,6 +573,59 @@ export default function Observations() {
             onShareWhole={(checked) => toggleShareWhole(viewing, checked)}
             onShareSection={(key, checked) => toggleShareSection(viewing, key, checked)}
           />
+        </Modal>
+      )}
+
+      {/* ---- Email modal ---------------------------------------------------- */}
+      {emailObs && (
+        <Modal
+          title={`Email ${teacherName[emailObs.teacherId] || 'teacher'}`}
+          onClose={closeEmail}
+          maxWidth={680}
+          footer={
+            <>
+              <button className="btn btn--ghost" onClick={closeEmail}>
+                Cancel
+              </button>
+              <button className="btn btn--ghost" onClick={copyEmail}>
+                {emailCopied ? 'Copied' : 'Copy'}
+              </button>
+              <button className="btn btn--primary" onClick={sendEmail} disabled={!emailDraft.to.trim()}>
+                Open in email app
+              </button>
+            </>
+          }
+        >
+          <div className="stack">
+            <p className="muted small" style={{ margin: 0 }}>
+              Drafted from this observation and the teacher's current pacing. Edit anything, then
+              open it in your email app to review and send. Nothing is sent automatically.
+            </p>
+            <Field label="To">
+              <input
+                className="input"
+                type="email"
+                value={emailDraft.to}
+                onChange={(e) => setEmailDraft((d) => ({ ...d, to: e.target.value }))}
+              />
+            </Field>
+            <Field label="Subject">
+              <input
+                className="input"
+                type="text"
+                value={emailDraft.subject}
+                onChange={(e) => setEmailDraft((d) => ({ ...d, subject: e.target.value }))}
+              />
+            </Field>
+            <Field label="Message">
+              <textarea
+                className="textarea"
+                style={{ minHeight: 260 }}
+                value={emailDraft.body}
+                onChange={(e) => setEmailDraft((d) => ({ ...d, body: e.target.value }))}
+              />
+            </Field>
+          </div>
         </Modal>
       )}
 
