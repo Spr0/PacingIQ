@@ -103,18 +103,26 @@ export async function generateDraft(kind, context, language = 'en') {
     throw err;
   }
 
-  const ct = res.headers.get('content-type') || '';
-  // No JSON body (for example the SPA catch-all served index.html) means the
-  // function is not deployed here.
-  if (!ct.includes('application/json')) {
+  const raw = await res.text();
+  let data = null;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    /* not JSON */
+  }
+
+  // A 2xx non-JSON body is the SPA catch-all serving index.html: the function
+  // is not deployed here. Fall back to the local demo draft.
+  if (res.ok && !data) {
     const err = new Error('Coaching assistant function is not deployed here.');
     err.reachable = false;
     throw err;
   }
 
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    const err = new Error(data.detail || data.error || `Request failed (${res.status})`);
+  // Any error status means the function IS deployed but failed. Surface it
+  // instead of masking it with a demo draft.
+  if (!res.ok || !data || data.error) {
+    const err = new Error((data && (data.detail || data.error)) || `Request failed (${res.status})`);
     err.reachable = true;
     throw err;
   }

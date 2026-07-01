@@ -28,20 +28,29 @@ export async function analyzeLessonPlan(lessonText, context, document) {
     throw err;
   }
 
-  const ct = res.headers.get('content-type') || '';
-  if (!ct.includes('application/json')) {
+  const raw = await res.text();
+  let data = null;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    /* not JSON */
+  }
+
+  if (res.ok && data) return data;
+
+  // A 2xx non-JSON body is the SPA catch-all serving index.html: the function
+  // is not running here (e.g. plain vite dev). Fall back to the offline demo.
+  if (res.ok) {
     const err = new Error('Lesson plan reader function is not deployed here.');
     err.reachable = false;
     throw err;
   }
 
-  const data = await res.json();
-  if (!res.ok || data.error) {
-    const err = new Error(data.detail || data.error || `Request failed (${res.status})`);
-    err.reachable = true;
-    throw err;
-  }
-  return data;
+  // Any error status means the function IS deployed but failed. Surface it
+  // instead of masking it as an offline demo read.
+  const err = new Error((data && (data.detail || data.error)) || `Request failed (${res.status})`);
+  err.reachable = true;
+  throw err;
 }
 
 // Offline demo fallback: a light regex read of common lesson-plan phrasing.

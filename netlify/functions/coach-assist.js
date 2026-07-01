@@ -57,16 +57,25 @@ owner, and a follow-up checkpoint. Use clear headings.${SHARED_STYLE}`,
 const SPANISH_INSTRUCTION =
   'Generate this content in Spanish (Español). Use professional, formal Spanish appropriate for a school/educational context.';
 
+// Every response carries an application/json content type, including errors, so
+// the client can tell a real function error apart from the SPA catch-all (which
+// serves HTML) and never masks a failure as an offline demo draft.
+const json = (statusCode, payload) => ({
+  statusCode,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+    return json(405, { error: 'Method Not Allowed' });
   }
 
   try {
     const { kind, context, language } = JSON.parse(event.body || '{}');
     let system = SYSTEM_PROMPTS[kind];
     if (!system) {
-      return { statusCode: 400, body: JSON.stringify({ error: `Unknown kind: ${kind}` }) };
+      return json(400, { error: `Unknown kind: ${kind}` });
     }
     if (language === 'es') {
       system = `${system}\n\n${SPANISH_INSTRUCTION}`;
@@ -89,22 +98,12 @@ exports.handler = async (event) => {
 
     const data = await response.json();
     if (!response.ok) {
-      return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: 'Anthropic API error', detail: data?.error?.message || '' }),
-      };
+      return json(response.status, { error: 'Anthropic API error', detail: data?.error?.message || '' });
     }
 
     const text = (data.content || []).map((b) => b.text || '').join('').trim();
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    };
+    return json(200, { text });
   } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Generation failed', detail: err.message }),
-    };
+    return json(500, { error: 'Generation failed', detail: err.message });
   }
 };

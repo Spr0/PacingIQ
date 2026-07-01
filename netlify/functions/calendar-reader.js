@@ -34,16 +34,25 @@ Return ONLY valid JSON, no markdown fences, no prose, matching exactly this shap
   ]
 }`;
 
+// Every response carries an application/json content type, including errors, so
+// the client can tell a real function error apart from the SPA catch-all (which
+// serves HTML) and never masks a failure as an offline demo read.
+const json = (statusCode, payload) => ({
+  statusCode,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload),
+});
+
 exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+    return json(405, { error: 'Method Not Allowed' });
   }
 
   try {
     const { calendarText, context, document } = JSON.parse(event.body || '{}');
     const hasText = calendarText && calendarText.trim();
     if (!hasText && !(document && document.fileBase64)) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'calendarText or document is required' }) };
+      return json(400, { error: 'calendarText or document is required' });
     }
 
     // PDF-upload path: hand the document to the model as a native block. Text
@@ -75,7 +84,10 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL,
-        max_tokens: 2000,
+        // Generous ceiling: a full-year calendar is a large JSON table, and a
+        // low limit truncates it into invalid JSON. Generation stops when the
+        // JSON is complete, so this does not slow smaller calendars.
+        max_tokens: 8000,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent }],
       }),
@@ -83,10 +95,7 @@ exports.handler = async (event) => {
 
     const data = await response.json();
     if (!response.ok) {
-      return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: 'Anthropic API error', detail: data?.error?.message || '' }),
-      };
+      return json(response.status, { error: 'Anthropic API error', detail: data?.error?.message || '' });
     }
 
     const raw = (data.content || []).map((b) => b.text || '').join('').trim();
@@ -94,21 +103,11 @@ exports.handler = async (event) => {
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return {
-        statusCode: 502,
-        body: JSON.stringify({ error: 'Model returned non-JSON output', detail: raw.slice(0, 200) }),
-      };
+      return json(502, { error: 'Model returned non-JSON output', detail: raw.slice(0, 200) });
     }
 
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(parsed),
-    };
+    return json(200, parsed);
   } catch (err) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: 'Calendar analysis failed', detail: err.message }),
-    };
+    return json(500, { error: 'Calendar analysis failed', detail: err.message });
   }
 };
