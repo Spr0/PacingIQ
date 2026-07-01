@@ -43,7 +43,22 @@ function emptyForm() {
     feedbackProvided: '',
     actionItems: [],
     followUpObservationDate: '',
+    attachments: [],
   };
+}
+
+// Demo file storage: attachments are embedded as base64 data URLs in
+// localStorage. Real blob storage (S3/Dataverse/etc.) is a re-platform
+// concern, so uploads are capped to keep the browser's storage usable.
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function newActionItem() {
@@ -60,6 +75,7 @@ export default function Observations() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
+  const [attachmentError, setAttachmentError] = useState(null);
 
   const [viewId, setViewId] = useState(null);
 
@@ -112,9 +128,39 @@ export default function Observations() {
     setForm((f) => ({ ...f, actionItems: f.actionItems.filter((ai) => ai.id !== id) }));
   }
 
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    const accepted = [];
+    const rejected = [];
+    for (const file of files) {
+      if (file.size > MAX_ATTACHMENT_BYTES) {
+        rejected.push(file.name);
+        continue;
+      }
+      const dataUrl = await readFileAsDataUrl(file);
+      accepted.push({
+        id: nid(),
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        sizeKB: Math.max(1, Math.round(file.size / 1024)),
+        dataUrl,
+        uploadedAt: isoDate(),
+      });
+    }
+    if (accepted.length) {
+      setForm((f) => ({ ...f, attachments: [...(f.attachments || []), ...accepted] }));
+    }
+    setAttachmentError(rejected.length ? `Too large (max 2MB each): ${rejected.join(', ')}` : null);
+  }
+
+  function removeAttachment(id) {
+    setForm((f) => ({ ...f, attachments: (f.attachments || []).filter((a) => a.id !== id) }));
+  }
+
   function openNew() {
     setEditingId(null);
     setForm(emptyForm());
+    setAttachmentError(null);
     setFormOpen(true);
   }
 
@@ -142,8 +188,10 @@ export default function Observations() {
         status: ai.status || 'Open',
       })),
       followUpObservationDate: obs.followUpObservationDate || '',
+      attachments: obs.attachments || [],
     });
     setViewId(null);
+    setAttachmentError(null);
     setFormOpen(true);
   }
 
@@ -151,6 +199,7 @@ export default function Observations() {
     setFormOpen(false);
     setEditingId(null);
     setForm(emptyForm());
+    setAttachmentError(null);
   }
 
   function canSave() {
@@ -518,6 +567,44 @@ export default function Observations() {
                 />
               </Field>
             </div>
+
+            <div className="section-title">Attachments</div>
+            <Field label="Files" hint="PDFs, photos, student work, or forms · max 2MB each">
+              <input
+                className="input"
+                type="file"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.csv"
+                onChange={(e) => {
+                  handleFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </Field>
+            {attachmentError && (
+              <p className="small" style={{ color: 'var(--red-600)', margin: 0 }}>
+                {attachmentError}
+              </p>
+            )}
+            {(form.attachments || []).length > 0 && (
+              <ul className="checklist">
+                {form.attachments.map((a) => (
+                  <li key={a.id}>
+                    <span className="check check--done">📎</span>
+                    <span>
+                      {a.name} <span className="muted small">· {a.sizeKB}KB</span>
+                    </span>
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      style={{ marginLeft: 'auto' }}
+                      onClick={() => removeAttachment(a.id)}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </Modal>
       )}
@@ -574,6 +661,25 @@ function ViewBody({ obs, teacherName, writable, onShareWhole }) {
         </div>
       )}
       <ReadRow label="Follow-up observation date" value={formatDate(obs.followUpObservationDate)} />
+
+      <div className="section-title">Attachments</div>
+      {(obs.attachments || []).length === 0 ? (
+        <p className="muted small">No files attached.</p>
+      ) : (
+        <ul className="checklist">
+          {obs.attachments.map((a) => (
+            <li key={a.id}>
+              <span className="check check--done">📎</span>
+              <a href={a.dataUrl} download={a.name} target="_blank" rel="noreferrer">
+                {a.name}
+              </a>
+              <span className="muted small" style={{ marginLeft: 8 }}>
+                {a.sizeKB}KB
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {writable && (
         <>

@@ -56,6 +56,16 @@ export function AppProvider({ children }) {
     setState(store.loadState());
   }, []);
 
+  // Mock auth: switching roles stands in for logging in as that persona.
+  // Logged so the audit trail's login history claim is actually true.
+  const switchRole = useCallback((key) => {
+    if (key === roleKey) return;
+    const nextUser = ROLES[key];
+    store.logAudit(nextUser, 'logged in', `Switched role to ${nextUser.label}`);
+    setRoleKey(key);
+    setState(store.loadState());
+  }, [roleKey]);
+
   const collections = {
     teachers: state.teachers || [],
     observations: state.observations || [],
@@ -81,7 +91,7 @@ export function AppProvider({ children }) {
   const value = {
     user,
     roleKey,
-    setRole: setRoleKey,
+    setRole: switchRole,
     ...collections,
     rollups,
     rollupFor,

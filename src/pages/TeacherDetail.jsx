@@ -24,6 +24,7 @@ import {
 import { Icon } from '../components/icons.jsx';
 import CoachAssistant from '../components/CoachAssistant.jsx';
 import ActionPlans from '../components/ActionPlans.jsx';
+import LessonPlanReader from '../components/LessonPlanReader.jsx';
 
 const TABS = [
   'Overview',
@@ -56,6 +57,7 @@ export default function TeacherDetail() {
   const [tab, setTab] = useState('Overview');
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInitialKind, setAiInitialKind] = useState('summary');
+  const [lessonReaderOpen, setLessonReaderOpen] = useState(false);
 
   function openAi(kind) {
     setAiInitialKind(kind);
@@ -137,6 +139,9 @@ export default function TeacherDetail() {
               </button>
               <button className="btn btn--ghost" onClick={() => openAi('summary')}>
                 <Icon name="sparkle" /> AI assist
+              </button>
+              <button className="btn btn--ghost" onClick={() => setLessonReaderOpen(true)}>
+                <Icon name="sparkle" /> Read Lesson Plan with AI
               </button>
             </div>
           )}
@@ -224,6 +229,10 @@ export default function TeacherDetail() {
           initialKind={aiInitialKind}
           onClose={() => setAiOpen(false)}
         />
+      )}
+
+      {lessonReaderOpen && (
+        <LessonPlanReader teacher={teacher} onClose={() => setLessonReaderOpen(false)} />
       )}
     </div>
   );

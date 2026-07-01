@@ -48,7 +48,14 @@ The first deployable slice covers the daily-driver coaching loop:
   meeting, follow-up observation, and leadership review, with a teacher staying
   Red until all requirements are met.
 - **Coaching Impact Report** — the primary single-page school-health view.
-- **Audit Log** — activity and change history.
+- **Audit Log** — activity and change history, including mock login (role switch).
+- **Action Plans** — reusable common templates plus editable teacher-specific
+  plans, created from a template or from scratch.
+- **Attachments** — files (PDFs, photos, student work, forms) attached to
+  observations. Demo storage embeds small files (2MB cap) directly in
+  `localStorage`; real blob storage is a re-platform concern (see Fast-follow).
+- **Multi-subject pacing** — elementary/multi-subject teachers get independent
+  pacing status per subject everywhere pacing is shown.
 
 ### Roles (mock auth)
 
@@ -77,11 +84,45 @@ In the plain `npm run dev` preview the function does not run, so the assistant
 falls back to a locally templated draft (clearly labeled "demo"). To exercise
 the live function locally, run `netlify dev` with the env vars set.
 
+## AI Lesson Plan Reader
+
+From a teacher record, **Read Lesson Plan with AI** (coach role) reads a pasted
+lesson plan and extracts the unit, lesson, standard, objective, assessment
+references, and any pacing concerns. The coach reviews and edits every field,
+then **Apply to this week's pacing** writes it to that teacher's (and subject's,
+if multi-subject) current-week pacing entry. Nothing is applied automatically.
+
+Runs through `netlify/functions/lesson-reader.js` (same `ANTHROPIC_API_KEY` /
+`ANTHROPIC_MODEL` config as the Coaching Assistant), with a locally templated
+regex-based read as the offline demo fallback.
+
+## AI Pacing Calendar Reader
+
+From the Pacing page, **Import Pacing Calendar with AI** (coach role) is the
+manual-upload path for the Pacing Calendar Module: paste a scope-and-sequence
+or syllabus and the assistant breaks it into a week-by-week table of units,
+lessons, standards, and assessment dates. The coach reviews and edits every
+row, then **Approve and Import** bulk-creates pacing entries and upcoming
+assessment records. Nothing is imported automatically.
+
+Runs through `netlify/functions/calendar-reader.js` (same env config), with a
+locally templated demo fallback offline.
+
 ## Fast-follow (not yet built)
 
-The weekly intelligence email is built (see Weekly Email). Still to come: the AI
-lesson/calendar reader, Google Classroom and Google Calendar integration, and
-file storage.
+The weekly intelligence email, AI lesson/calendar reader, action plans, and
+file attachments are built. Still to come, and blocked on real OAuth
+credentials this environment doesn't have:
+
+- **Live Google Classroom sync** — the AI Pacing Calendar Reader covers the
+  spec's manual-upload path today; direct Classroom sync needs a registered
+  Google Cloud OAuth client.
+- **Live Google Calendar integration** — meeting agendas are already AI-
+  generated (Coaching Assistant); creating real calendar invitations needs the
+  same OAuth setup.
+- **Production-grade file storage** — today's attachments are demo-capped
+  (2MB, embedded in `localStorage`). Re-platforming onto Dataverse / blob
+  storage removes the size ceiling.
 
 ## Architecture notes
 

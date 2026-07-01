@@ -12,6 +12,8 @@ import { can } from '../lib/permissions.js';
 import { pacingStatus } from '../lib/intelligence.js';
 import { isoDate } from '../lib/dates.js';
 import { Card, StatusBadge, Badge, Empty, Field, Modal, InfoTip, PACING_STATUS_TOOLTIP } from '../components/ui.jsx';
+import { Icon } from '../components/icons.jsx';
+import PacingCalendarReader from '../components/PacingCalendarReader.jsx';
 
 const EXCEPTION_REASONS = [
   'Testing disruption',
@@ -44,6 +46,7 @@ export default function Pacing() {
 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [showCalendarReader, setShowCalendarReader] = useState(false);
 
   // The current week is the latest weekOf present in the data.
   const currentWeek = useMemo(() => {
@@ -164,9 +167,14 @@ export default function Pacing() {
           <Badge tone="brand">This week</Badge>
         </div>
         {writable ? (
-          <button className="btn btn--primary" onClick={openLog}>
-            Log Weekly Pacing
-          </button>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn--ghost" onClick={() => setShowCalendarReader(true)}>
+              <Icon name="sparkle" /> Import Pacing Calendar with AI
+            </button>
+            <button className="btn btn--primary" onClick={openLog}>
+              Log Weekly Pacing
+            </button>
+          </div>
         ) : (
           <span className="muted small">View only. Editing is limited to the coach role.</span>
         )}
@@ -418,6 +426,10 @@ export default function Pacing() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {showCalendarReader && (
+        <PacingCalendarReader onClose={() => setShowCalendarReader(false)} />
       )}
     </div>
   );
