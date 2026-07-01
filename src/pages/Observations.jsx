@@ -77,6 +77,10 @@ export default function Observations() {
   // Blob keys uploaded during this form session that aren't attached to a
   // saved record yet. Cleaned up if the form is cancelled before saving.
   const [pendingKeys, setPendingKeys] = useState([]);
+  // Blob keys for previously-saved attachments the user removed in this
+  // session. Deletion is deferred until Save so a Cancel doesn't destroy a
+  // blob that the persisted record still references.
+  const [removedKeys, setRemovedKeys] = useState([]);
 
   const [viewId, setViewId] = useState(null);
 
@@ -166,9 +170,14 @@ export default function Observations() {
   function removeAttachment(id) {
     const attachment = (form.attachments || []).find((a) => a.id === id);
     setForm((f) => ({ ...f, attachments: (f.attachments || []).filter((a) => a.id !== id) }));
-    if (attachment && attachment.key) {
+    if (!attachment || !attachment.key) return;
+    if (pendingKeys.includes(attachment.key)) {
+      // Uploaded this session and never saved anywhere else — safe to delete now.
       deleteAttachment(attachment.key);
       setPendingKeys((keys) => keys.filter((k) => k !== attachment.key));
+    } else {
+      // Still referenced by the persisted record until Save confirms the removal.
+      setRemovedKeys((keys) => [...keys, attachment.key]);
     }
   }
 
@@ -176,6 +185,7 @@ export default function Observations() {
     setEditingId(null);
     setForm(emptyForm());
     setPendingKeys([]);
+    setRemovedKeys([]);
     setAttachmentError(null);
     setFormOpen(true);
   }
@@ -208,6 +218,7 @@ export default function Observations() {
       attachments: obs.attachments || [],
     });
     setPendingKeys([]);
+    setRemovedKeys([]);
     setViewId(null);
     setAttachmentError(null);
     setFormOpen(true);
@@ -221,6 +232,7 @@ export default function Observations() {
     setEditingId(null);
     setForm(emptyForm());
     setPendingKeys([]);
+    setRemovedKeys([]);
     setAttachmentError(null);
   }
 
@@ -246,6 +258,8 @@ export default function Observations() {
         'created observation'
       );
     }
+    // Now that the record no longer references them, the removed blobs are safe to delete.
+    removedKeys.forEach((key) => deleteAttachment(key));
     resetFormUI();
   }
 
