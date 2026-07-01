@@ -11,14 +11,16 @@
 import { isoDate } from './dates.js';
 
 // Calls the serverless function. Same reachable/not-reachable error contract
-// as the coach-assist and lesson-reader clients.
-export async function analyzeCalendar(calendarText, context) {
+// as the coach-assist and lesson-reader clients. `document` is an optional
+// { fileBase64, mediaType } for the PDF-upload path; when present the function
+// hands it to the model as a native document block instead of reading text.
+export async function analyzeCalendar(calendarText, context, document) {
   let res;
   try {
     res = await fetch('/.netlify/functions/calendar-reader', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarText, context }),
+      body: JSON.stringify({ calendarText, context, document }),
     });
   } catch {
     const err = new Error('Pacing calendar reader function is not reachable.');

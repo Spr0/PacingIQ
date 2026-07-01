@@ -1,9 +1,10 @@
 // ---------------------------------------------------------------------------
 // AI Pacing Calendar Reader — Netlify Function.
 //
-// Reads a pasted pacing calendar (the manual-upload path for teachers whose
-// district doesn't sync through Google Classroom) and extracts a week-by-week
-// breakdown: unit, lesson, standard, and any assessment dates. The model is
+// Reads a pacing calendar (the manual-upload path for teachers whose district
+// doesn't sync through Google Classroom) supplied as pasted/extracted text or
+// an attached PDF, and extracts a week-by-week breakdown: unit, lesson,
+// standard, and any assessment dates. The model is
 // read from process.env.ANTHROPIC_MODEL with no fallback, so a missing config
 // fails loudly rather than silently shipping a wrong model.
 //
@@ -12,12 +13,12 @@
 // anywhere from this function.
 // ---------------------------------------------------------------------------
 
-const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the pacing calendar text
-provided (a district scope-and-sequence, unit plan, or syllabus, pasted as plain text) and break
-it into a week-by-week list. Use ONLY the facts present in the text. Do not invent weeks, dates,
-units, or standards that are not stated or clearly implied. If a date is not given for a week,
-estimate it from surrounding dates only if the text provides enough structure to do so reliably;
-otherwise leave it null.
+const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the pacing calendar provided
+(a district scope-and-sequence, unit plan, or syllabus, supplied as pasted plain text or an
+attached PDF document) and break it into a week-by-week list. Use ONLY the facts present in the
+source. Do not invent weeks, dates, units, or standards that are not stated or clearly implied. If
+a date is not given for a week, estimate it from surrounding dates only if the source provides
+enough structure to do so reliably; otherwise leave it null.
 
 Return ONLY valid JSON, no markdown fences, no prose, matching exactly this shape:
 {
@@ -39,14 +40,31 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { calendarText, context } = JSON.parse(event.body || '{}');
-    if (!calendarText || !calendarText.trim()) {
-      return { statusCode: 400, body: JSON.stringify({ error: 'calendarText is required' }) };
+    const { calendarText, context, document } = JSON.parse(event.body || '{}');
+    const hasText = calendarText && calendarText.trim();
+    if (!hasText && !(document && document.fileBase64)) {
+      return { statusCode: 400, body: JSON.stringify({ error: 'calendarText or document is required' }) };
     }
 
-    const userMessage = context
-      ? `Context: ${context}\n\nPacing calendar text:\n${calendarText}`
-      : `Pacing calendar text:\n${calendarText}`;
+    // PDF-upload path: hand the document to the model as a native block. Text
+    // path: pass the pasted/extracted calendar as a plain string.
+    let userContent;
+    if (document && document.fileBase64) {
+      userContent = [
+        {
+          type: 'document',
+          source: { type: 'base64', media_type: document.mediaType || 'application/pdf', data: document.fileBase64 },
+        },
+        {
+          type: 'text',
+          text: `${context ? `Context: ${context}\n\n` : ''}The attached document is a pacing calendar. Extract the week-by-week breakdown as specified.`,
+        },
+      ];
+    } else {
+      userContent = context
+        ? `Context: ${context}\n\nPacing calendar text:\n${calendarText}`
+        : `Pacing calendar text:\n${calendarText}`;
+    }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -59,7 +77,7 @@ exports.handler = async (event) => {
         model: process.env.ANTHROPIC_MODEL,
         max_tokens: 2000,
         system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: userMessage }],
+        messages: [{ role: 'user', content: userContent }],
       }),
     });
 

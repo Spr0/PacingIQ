@@ -2,7 +2,8 @@
 // AI Pacing Calendar Reader modal.
 //
 // The manual-upload path for the Pacing Calendar Module: the coach pastes a
-// scope-and-sequence / syllabus, the assistant breaks it into a week-by-week
+// scope-and-sequence / syllabus or uploads a PDF, Excel, or CSV file, and the
+// assistant breaks it into a week-by-week
 // list of units/lessons/standards/assessment dates (live via the Netlify
 // Function, or a locally templated read when the function is offline). The
 // result is an editable draft table; nothing is imported until the coach
@@ -14,6 +15,7 @@ import { Modal, Field } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { useApp } from '../state/AppContext.jsx';
 import { analyzeCalendar, localCalendarAnalysis } from '../lib/calendarReader.js';
+import { extractCalendarFile, CALENDAR_FILE_ACCEPT } from '../lib/fileExtract.js';
 
 function rowId() {
   return 'row_' + Math.random().toString(36).slice(2, 9);
@@ -34,12 +36,50 @@ export default function PacingCalendarReader({ onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [importedNote, setImportedNote] = useState(null);
+  // PDF-upload path: { fileBase64, mediaType } handed to the model as a document
+  // block. Text files (CSV/Excel/TXT) instead fill the textarea below.
+  const [fileDoc, setFileDoc] = useState(null);
+  const [fileName, setFileName] = useState('');
+  const [extracting, setExtracting] = useState(false);
 
   const selectedTeacher = rollups.find((r) => r.teacher.id === teacherId)?.teacher;
   const subjectOptions = selectedTeacher?.subjects || [];
 
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file
+    if (!file) return;
+    setError(null);
+    setImportedNote(null);
+    setExtracting(true);
+    try {
+      const out = await extractCalendarFile(file);
+      if (out.kind === 'pdf') {
+        setFileDoc({ fileBase64: out.fileBase64, mediaType: out.mediaType });
+        setFileName(out.name);
+        setCalendarText('');
+      } else {
+        // CSV / Excel / text extracted to plain text: fill the textarea so the
+        // coach can review and edit it, and reuse the normal text pipeline.
+        setFileDoc(null);
+        setFileName(out.name);
+        setCalendarText(out.text);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setExtracting(false);
+    }
+  }
+
+  function clearFile() {
+    setFileDoc(null);
+    setFileName('');
+  }
+
   async function read() {
-    if (!calendarText.trim()) return;
+    const hasText = calendarText.trim();
+    if (!hasText && !fileDoc) return;
     setLoading(true);
     setError(null);
     setImportedNote(null);
@@ -49,13 +89,18 @@ export default function PacingCalendarReader({ onClose }) {
         }.`
       : '';
     try {
-      const extracted = await analyzeCalendar(calendarText, context);
+      const extracted = await analyzeCalendar(fileDoc ? '' : calendarText, context, fileDoc || undefined);
       setWeeks(extracted.map((w) => ({ id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '', ...w })));
       setSource('ai');
     } catch (e) {
       if (e.reachable) {
         setError(
           `Live analysis failed: ${e.message} Check ANTHROPIC_API_KEY and ANTHROPIC_MODEL in the Netlify site settings.`
+        );
+      } else if (fileDoc) {
+        // A PDF has no offline path: reading the document needs the live model.
+        setError(
+          'Reading a PDF needs the live AI. Run on the deployed site, or paste the calendar text to use the offline demo read.'
         );
       } else {
         setWeeks(localCalendarAnalysis(calendarText).map((w) => ({ id: rowId(), ...w })));
@@ -144,9 +189,10 @@ export default function PacingCalendarReader({ onClose }) {
     >
       <div className="stack">
         <p className="muted small" style={{ margin: 0 }}>
-          Paste a scope-and-sequence, syllabus, or unit plan. The assistant breaks it into a
-          week-by-week list of units, lessons, standards, and assessment dates. Review and edit every
-          row before anything is imported into pacing or assessments.
+          Paste a scope-and-sequence, syllabus, or unit plan, or upload a PDF, Excel, or CSV file.
+          The assistant breaks it into a week-by-week list of units, lessons, standards, and
+          assessment dates. Review and edit every row before anything is imported into pacing or
+          assessments.
         </p>
 
         <div className="form-row">
@@ -181,18 +227,47 @@ export default function PacingCalendarReader({ onClose }) {
           )}
         </div>
 
-        <Field label="Pacing calendar text">
+        <Field label="Upload a file" hint="PDF, Excel (.xlsx/.xls), CSV, or text · max 4MB">
+          <input
+            className="input"
+            type="file"
+            accept={CALENDAR_FILE_ACCEPT}
+            onChange={handleFile}
+            disabled={extracting}
+          />
+        </Field>
+        {extracting && <p className="small muted" style={{ margin: 0 }}>Reading file...</p>}
+        {fileName && (
+          <div className="row row--between" style={{ gap: 8 }}>
+            <span className="pill pill--amber">
+              <span className="dot" />
+              {fileDoc ? `PDF ready: ${fileName}` : `Loaded ${fileName} into the text below`}
+            </span>
+            <button className="btn btn--ghost btn--sm" onClick={clearFile}>
+              Remove file
+            </button>
+          </div>
+        )}
+
+        <Field label="Pacing calendar text" hint={fileDoc ? 'A PDF is loaded; typing here switches to text instead.' : undefined}>
           <textarea
             className="textarea"
             style={{ minHeight: 140 }}
             value={calendarText}
-            onChange={(e) => setCalendarText(e.target.value)}
-            placeholder="Paste the scope-and-sequence or syllabus here..."
+            onChange={(e) => {
+              setCalendarText(e.target.value);
+              if (fileDoc) clearFile(); // typing supersedes a loaded PDF
+            }}
+            placeholder={fileDoc ? 'PDF loaded above. Type here to read text instead.' : 'Paste the scope-and-sequence or syllabus here...'}
           />
         </Field>
 
         <div className="row" style={{ gap: 10 }}>
-          <button className="btn btn--primary" onClick={read} disabled={loading || !calendarText.trim()}>
+          <button
+            className="btn btn--primary"
+            onClick={read}
+            disabled={loading || extracting || (!calendarText.trim() && !fileDoc)}
+          >
             <Icon name="sparkle" /> {loading ? 'Reading...' : weeks.length ? 'Re-read Calendar with AI' : 'Read Calendar with AI'}
           </button>
         </div>

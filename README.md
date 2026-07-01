@@ -101,13 +101,19 @@ regex-based read as the offline demo fallback.
 
 From the Pacing page, **Import Pacing Calendar with AI** (coach role) is the
 manual-upload path for the Pacing Calendar Module: paste a scope-and-sequence
-or syllabus and the assistant breaks it into a week-by-week table of units,
-lessons, standards, and assessment dates. The coach reviews and edits every
-row, then **Approve and Import** bulk-creates pacing entries and upcoming
-assessment records. Nothing is imported automatically.
+or syllabus, or upload a **PDF, Excel (.xlsx/.xls), or CSV** file, and the
+assistant breaks it into a week-by-week table of units, lessons, standards, and
+assessment dates. The coach reviews and edits every row, then **Approve and
+Import** bulk-creates pacing entries and upcoming assessment records. Nothing is
+imported automatically.
 
-Runs through `netlify/functions/calendar-reader.js` (same env config), with a
-locally templated demo fallback offline.
+CSV and Excel files are read to text in the browser (Excel via SheetJS loaded
+on demand from its ESM CDN, so nothing is added to the bundle), then flow
+through the same reader as pasted text. PDFs are handed to the model as a native
+document block by `netlify/functions/calendar-reader.js`, so reading a PDF needs
+the live function; paste or CSV/Excel upload also works against the offline demo
+fallback. Same `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` config as the other AI
+features.
 
 ## Fast-follow (not yet built)
 
