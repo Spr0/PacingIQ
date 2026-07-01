@@ -11,7 +11,7 @@ import { useApp } from '../state/AppContext.jsx';
 import { isOverdue } from '../lib/intelligence.js';
 import { formatDate, daysUntil } from '../lib/dates.js';
 import { Icon } from '../components/icons.jsx';
-import { Empty } from '../components/ui.jsx';
+import { Empty, InfoTip, RISK_SCORE_TOOLTIP, PACING_STATUS_TOOLTIP } from '../components/ui.jsx';
 
 function initials(name) {
   return (name || '?')
@@ -151,14 +151,20 @@ export default function Dashboard() {
       {/* Stat cards */}
       <div className="grid grid--auto">
         <div className="statcard statcard--red">
-          <div className="statcard__label">Behind pace</div>
+          <div className="statcard__label">
+            Behind pace
+            <InfoTip text={PACING_STATUS_TOOLTIP} />
+          </div>
           <div className="statcard__value">{behindPace.length}</div>
           <div className="statcard__delta">
             {redRisk.length} at red risk this week
           </div>
         </div>
         <div className="statcard statcard--red">
-          <div className="statcard__label">Red status</div>
+          <div className="statcard__label">
+            Red status
+            <InfoTip text={RISK_SCORE_TOOLTIP} />
+          </div>
           <div className="statcard__value">{redRisk.length}</div>
           <div className="statcard__delta">highest priority</div>
         </div>
@@ -205,7 +211,10 @@ export default function Dashboard() {
                       {r.teacher.subject} · Grade {r.teacher.gradeLevel}
                     </div>
                   </div>
-                  <div className="lrow__mid">{r.pacing?.currentUnit || '—'}</div>
+                  <div className="lrow__mid">
+                    {r.multiSubject && r.pacing?.subject ? `${r.pacing.subject} · ` : ''}
+                    {r.pacing?.currentUnit || '—'}
+                  </div>
                   <div className="lrow__right">
                     <span className={`pill pill--${BAND[r.pacingStatus]}`}>
                       <span className="dot" />
@@ -354,7 +363,16 @@ export default function Dashboard() {
             )}
           </PCard>
 
-          <PCard icon="interventions" eyebrow="Priority 5" title="Teacher risk score">
+          <PCard
+            icon="interventions"
+            eyebrow="Priority 5"
+            title={
+              <>
+                Teacher risk score
+                <InfoTip text={RISK_SCORE_TOOLTIP} />
+              </>
+            }
+          >
             <div className="row row--wrap" style={{ gap: 8, padding: '4px 2px 10px' }}>
               <span className="pill pill--green">
                 <span className="dot" />

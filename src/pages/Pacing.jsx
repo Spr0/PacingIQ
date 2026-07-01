@@ -11,7 +11,7 @@ import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
 import { pacingStatus } from '../lib/intelligence.js';
 import { isoDate } from '../lib/dates.js';
-import { Card, StatusBadge, Badge, Empty, Field, Modal } from '../components/ui.jsx';
+import { Card, StatusBadge, Badge, Empty, Field, Modal, InfoTip, PACING_STATUS_TOOLTIP } from '../components/ui.jsx';
 
 const EXCEPTION_REASONS = [
   'Testing disruption',
@@ -26,6 +26,7 @@ const EXCEPTION_REASONS = [
 
 const EMPTY_FORM = {
   teacherId: '',
+  subject: '',
   currentUnit: '',
   currentLesson: '',
   currentStandard: '',
@@ -50,23 +51,54 @@ export default function Pacing() {
     return weeks.length ? weeks[weeks.length - 1] : isoDate();
   }, [pacingEntries]);
 
-  // Teachers whose current pacing entry carries an exception reason.
+  // One row per teacher, or one row per subject for multi-subject teachers.
+  const pacingRows = useMemo(() => {
+    const rows = [];
+    rollups.forEach((r) => {
+      if (r.multiSubject) {
+        r.pacingBySubject.forEach((sp) =>
+          rows.push({
+            rollup: r,
+            subject: sp.subject,
+            pacing: sp.pacing,
+            daysBehind: sp.daysBehind,
+            status: sp.status,
+          })
+        );
+      } else {
+        rows.push({
+          rollup: r,
+          subject: null,
+          pacing: r.pacing,
+          daysBehind: r.daysBehind,
+          status: r.pacingStatus,
+        });
+      }
+    });
+    return rows;
+  }, [rollups]);
+
+  // Rows whose current pacing entry carries an exception reason.
   const exceptions = useMemo(
-    () => rollups.filter((r) => r.pacing && r.pacing.exceptionReason),
-    [rollups]
+    () => pacingRows.filter((row) => row.pacing && row.pacing.exceptionReason),
+    [pacingRows]
   );
+
+  const selectedTeacher = rollups.find((r) => r.teacher.id === form.teacherId)?.teacher;
+  const subjectOptions = selectedTeacher?.subjects || [];
 
   function openLog() {
     setForm(EMPTY_FORM);
     setShowModal(true);
   }
 
-  function openUpdate(rollup) {
-    const p = rollup.pacing;
+  function openUpdate(row) {
+    const p = row.pacing;
     const known = p && EXCEPTION_REASONS.includes(p.exceptionReason);
     const isCustom = p && p.exceptionReason && !known;
     setForm({
-      teacherId: rollup.teacher.id,
+      teacherId: row.rollup.teacher.id,
+      subject: row.subject || '',
       currentUnit: (p && p.currentUnit) || '',
       currentLesson: (p && p.currentLesson) || '',
       currentStandard: (p && p.currentStandard) || '',
@@ -80,6 +112,7 @@ export default function Pacing() {
 
   function save() {
     if (!form.teacherId) return;
+    if (subjectOptions.length > 0 && !form.subject) return;
 
     let exceptionReason = '';
     if (form.exceptionReason === 'Custom reason') {
@@ -90,6 +123,7 @@ export default function Pacing() {
 
     const patch = {
       teacherId: form.teacherId,
+      subject: form.subject || '',
       currentUnit: form.currentUnit.trim(),
       currentLesson: form.currentLesson.trim(),
       currentStandard: form.currentStandard.trim(),
@@ -98,9 +132,12 @@ export default function Pacing() {
       notes: form.notes.trim(),
     };
 
-    // Find this teacher's entry for the current week, if any.
+    // Find this teacher's (and subject's) entry for the current week, if any.
     const existing = pacingEntries.find(
-      (p) => p.teacherId === form.teacherId && p.weekOf === currentWeek
+      (p) =>
+        p.teacherId === form.teacherId &&
+        p.weekOf === currentWeek &&
+        (p.subject || '') === (form.subject || '')
     );
 
     if (existing) {
@@ -135,8 +172,8 @@ export default function Pacing() {
         )}
       </div>
 
-      <Card title="Weekly Pacing" count={rollups.length} flush>
-        {rollups.length === 0 ? (
+      <Card title="Weekly Pacing" count={pacingRows.length} flush>
+        {pacingRows.length === 0 ? (
           <div style={{ padding: 24 }}>
             <Empty icon="📅">No teachers to pace yet.</Empty>
           </div>
@@ -145,10 +182,14 @@ export default function Pacing() {
             <thead>
               <tr>
                 <th>Teacher</th>
+                <th>Subject</th>
                 <th>Current Unit</th>
                 <th>Lesson</th>
                 <th>Standard</th>
-                <th className="num">Days Behind</th>
+                <th className="num">
+                  Days Behind
+                  <InfoTip text={PACING_STATUS_TOOLTIP} />
+                </th>
                 <th>Status</th>
                 <th>Exception</th>
                 <th>Triggers</th>
@@ -156,23 +197,25 @@ export default function Pacing() {
               </tr>
             </thead>
             <tbody>
-              {rollups.map((r) => {
-                const p = r.pacing;
+              {pacingRows.map((row) => {
+                const p = row.pacing;
+                const r = row.rollup;
                 return (
-                  <tr key={r.teacher.id}>
+                  <tr key={`${r.teacher.id}-${row.subject || 'main'}`}>
                     <td>
                       <Link className="tname" to={`/teachers/${r.teacher.id}`}>
                         {r.teacher.name}
                       </Link>
                     </td>
+                    <td>{row.subject || '—'}</td>
                     <td>{(p && p.currentUnit) || '—'}</td>
                     <td>{(p && p.currentLesson) || '—'}</td>
                     <td>{(p && p.currentStandard) || '—'}</td>
-                    <td className={`num ${r.pacingStatus === 'red' ? 'risk-red' : ''}`}>
-                      {r.daysBehind}
+                    <td className={`num ${row.status === 'red' ? 'risk-red' : ''}`}>
+                      {row.daysBehind}
                     </td>
                     <td>
-                      <StatusBadge status={r.pacingStatus} />
+                      <StatusBadge status={row.status} />
                     </td>
                     <td>
                       <Badge tone={p && p.exceptionReason ? 'yellow' : 'neutral'}>
@@ -180,11 +223,11 @@ export default function Pacing() {
                       </Badge>
                     </td>
                     <td>
-                      <Triggers status={r.pacingStatus} />
+                      <Triggers status={row.status} />
                     </td>
                     {writable && (
                       <td>
-                        <button className="btn btn--ghost btn--sm" onClick={() => openUpdate(r)}>
+                        <button className="btn btn--ghost btn--sm" onClick={() => openUpdate(row)}>
                           Update
                         </button>
                       </td>
@@ -207,22 +250,24 @@ export default function Pacing() {
             <thead>
               <tr>
                 <th>Teacher</th>
+                <th>Subject</th>
                 <th>Reason</th>
                 <th>Notes</th>
               </tr>
             </thead>
             <tbody>
-              {exceptions.map((r) => (
-                <tr key={r.teacher.id}>
+              {exceptions.map((row) => (
+                <tr key={`${row.rollup.teacher.id}-${row.subject || 'main'}`}>
                   <td>
-                    <Link className="tname" to={`/teachers/${r.teacher.id}`}>
-                      {r.teacher.name}
+                    <Link className="tname" to={`/teachers/${row.rollup.teacher.id}`}>
+                      {row.rollup.teacher.name}
                     </Link>
                   </td>
+                  <td>{row.subject || '—'}</td>
                   <td>
-                    <Badge tone="yellow">{r.pacing.exceptionReason}</Badge>
+                    <Badge tone="yellow">{row.pacing.exceptionReason}</Badge>
                   </td>
-                  <td className="muted">{r.pacing.notes || '—'}</td>
+                  <td className="muted">{row.pacing.notes || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -234,7 +279,10 @@ export default function Pacing() {
         <Modal
           title={
             pacingEntries.some(
-              (p) => p.teacherId === form.teacherId && p.weekOf === currentWeek
+              (p) =>
+                p.teacherId === form.teacherId &&
+                p.weekOf === currentWeek &&
+                (p.subject || '') === (form.subject || '')
             )
               ? 'Update Weekly Pacing'
               : 'Log Weekly Pacing'
@@ -246,7 +294,11 @@ export default function Pacing() {
               <button className="btn btn--ghost" onClick={() => setShowModal(false)}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={save} disabled={!form.teacherId}>
+              <button
+                className="btn btn--primary"
+                onClick={save}
+                disabled={!form.teacherId || (subjectOptions.length > 0 && !form.subject)}
+              >
                 Save
               </button>
             </>
@@ -257,7 +309,7 @@ export default function Pacing() {
               <select
                 className="select"
                 value={form.teacherId}
-                onChange={(e) => setForm({ ...form, teacherId: e.target.value })}
+                onChange={(e) => setForm({ ...form, teacherId: e.target.value, subject: '' })}
               >
                 <option value="">Select a teacher</option>
                 {rollups.map((r) => (
@@ -267,6 +319,23 @@ export default function Pacing() {
                 ))}
               </select>
             </Field>
+
+            {subjectOptions.length > 0 && (
+              <Field label="Subject" hint="this teacher covers multiple subjects">
+                <select
+                  className="select"
+                  value={form.subject}
+                  onChange={(e) => setForm({ ...form, subject: e.target.value })}
+                >
+                  <option value="">Select a subject</option>
+                  {subjectOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
             <div className="form-row">
               <Field label="Current unit">

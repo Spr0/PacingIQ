@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { recommendedAction } from '../lib/intelligence.js';
 import { formatDate, isoDate } from '../lib/dates.js';
-import { Card, RiskBadge, Badge, Empty } from '../components/ui.jsx';
+import { Card, RiskBadge, Badge, Empty, InfoTip, RISK_SCORE_TOOLTIP, PACING_STATUS_TOOLTIP } from '../components/ui.jsx';
 
 const RED = 'var(--red)';
 
@@ -104,8 +104,14 @@ export default function Report() {
             <thead>
               <tr>
                 <th>Teacher</th>
-                <th>Risk</th>
-                <th className="num">Days Behind</th>
+                <th>
+                  Risk
+                  <InfoTip text={RISK_SCORE_TOOLTIP} />
+                </th>
+                <th className="num">
+                  Days Behind
+                  <InfoTip text={PACING_STATUS_TOOLTIP} />
+                </th>
                 <th>Last Observation</th>
                 <th>Unit Test</th>
                 <th className="num">Outstanding</th>

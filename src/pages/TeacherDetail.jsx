@@ -10,9 +10,20 @@ import { useApp } from '../state/AppContext.jsx';
 import { pacingStatus, recommendedAction, isOverdue } from '../lib/intelligence.js';
 import { formatDate, daysUntil } from '../lib/dates.js';
 import { can } from '../lib/permissions.js';
-import { Card, StatusBadge, RiskBadge, Badge, Empty, Modal } from '../components/ui.jsx';
+import {
+  Card,
+  StatusBadge,
+  RiskBadge,
+  Badge,
+  Empty,
+  Modal,
+  InfoTip,
+  RISK_SCORE_TOOLTIP,
+  PACING_STATUS_TOOLTIP,
+} from '../components/ui.jsx';
 import { Icon } from '../components/icons.jsx';
 import CoachAssistant from '../components/CoachAssistant.jsx';
+import ActionPlans from '../components/ActionPlans.jsx';
 
 const TABS = [
   'Overview',
@@ -20,6 +31,7 @@ const TABS = [
   'Pacing',
   'Assessments',
   'Interventions',
+  'Action Plans',
   'Coaching Notes',
 ];
 
@@ -27,11 +39,28 @@ const ENGAGEMENT_TONE = { Low: 'red', Medium: 'yellow', High: 'green' };
 
 export default function TeacherDetail() {
   const { id } = useParams();
-  const { rollupFor, observations, pacingEntries, assessments, interventions, roleKey } = useApp();
+  const {
+    rollupFor,
+    observations,
+    pacingEntries,
+    assessments,
+    interventions,
+    actionPlans,
+    actionPlanTemplates,
+    db,
+    roleKey,
+  } = useApp();
   const rollup = rollupFor(id);
+  const writable = can(roleKey, 'write');
 
   const [tab, setTab] = useState('Overview');
   const [aiOpen, setAiOpen] = useState(false);
+  const [aiInitialKind, setAiInitialKind] = useState('summary');
+
+  function openAi(kind) {
+    setAiInitialKind(kind);
+    setAiOpen(true);
+  }
 
   const myObservations = useMemo(
     () =>
@@ -57,6 +86,10 @@ export default function TeacherDetail() {
   const myInterventions = useMemo(
     () => interventions.filter((i) => i.teacherId === id),
     [interventions, id]
+  );
+  const myActionPlans = useMemo(
+    () => actionPlans.filter((p) => p.teacherId === id),
+    [actionPlans, id]
   );
 
   if (!rollup) {
@@ -97,22 +130,53 @@ export default function TeacherDetail() {
                 .join(' · ')}
             </p>
           </div>
-          {can(roleKey, 'write') && (
-            <button className="btn btn--primary" onClick={() => setAiOpen(true)}>
-              <Icon name="sparkle" /> AI assist
-            </button>
+          {writable && (
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn btn--primary" onClick={() => openAi('action_plan')}>
+                <Icon name="sparkle" /> Generate Action Plan with AI
+              </button>
+              <button className="btn btn--ghost" onClick={() => openAi('summary')}>
+                <Icon name="sparkle" /> AI assist
+              </button>
+            </div>
           )}
         </div>
         <div className="row row--wrap" style={{ gap: 8 }}>
           <RiskBadge risk={risk} />
-          <StatusBadge status={rollup.pacingStatus} label={pacingLabel} />
+          {rollup.multiSubject ? (
+            rollup.pacingBySubject.map((sp) => (
+              <StatusBadge
+                key={sp.subject}
+                status={sp.status}
+                label={`${sp.label} · ${sp.daysBehind > 0 ? `${sp.daysBehind}d behind` : 'On pace'}`}
+              />
+            ))
+          ) : (
+            <StatusBadge status={rollup.pacingStatus} label={pacingLabel} />
+          )}
           {seenBadge}
         </div>
       </div>
 
       <div className="grid grid--auto">
-        <Stat value={risk.score} label="Risk score" />
-        <Stat value={rollup.daysBehind} label="Days behind" />
+        <Stat
+          value={risk.score}
+          label={
+            <>
+              Risk score
+              <InfoTip text={RISK_SCORE_TOOLTIP} />
+            </>
+          }
+        />
+        <Stat
+          value={rollup.daysBehind}
+          label={
+            <>
+              Days behind
+              <InfoTip text={PACING_STATUS_TOOLTIP} />
+            </>
+          }
+        />
         <Stat value={dsObs == null ? '—' : dsObs} label="Days since observation" />
         <Stat value={rollup.outstandingActions.length} label="Outstanding actions" />
       </div>
@@ -141,6 +205,15 @@ export default function TeacherDetail() {
       {tab === 'Pacing' && <PacingTab entries={myPacing} />}
       {tab === 'Assessments' && <AssessmentsTab assessments={myAssessments} />}
       {tab === 'Interventions' && <InterventionsTab interventions={myInterventions} />}
+      {tab === 'Action Plans' && (
+        <ActionPlans
+          teacherId={id}
+          plans={myActionPlans}
+          templates={actionPlanTemplates}
+          db={db}
+          writable={writable}
+        />
+      )}
       {tab === 'Coaching Notes' && <CoachingNotesTab observations={myObservations} />}
 
       {aiOpen && (
@@ -148,6 +221,7 @@ export default function TeacherDetail() {
           rollup={rollup}
           observations={myObservations}
           assessments={myAssessments}
+          initialKind={aiInitialKind}
           onClose={() => setAiOpen(false)}
         />
       )}
@@ -179,7 +253,24 @@ function OverviewTab({ rollup }) {
           </p>
         </Card>
         <Card title="Current pacing">
-          {pacing ? (
+          {rollup.multiSubject ? (
+            <div className="stack">
+              {rollup.pacingBySubject.map((sp) => (
+                <div key={sp.subject} className="stack" style={{ gap: 4 }}>
+                  <div className="row row--between">
+                    <strong className="small">{sp.label}</strong>
+                    <StatusBadge
+                      status={sp.status}
+                      label={sp.daysBehind > 0 ? `${sp.daysBehind} days behind` : 'On pace'}
+                    />
+                  </div>
+                  <KV k="Unit" v={sp.pacing.currentUnit || '—'} />
+                  <KV k="Lesson" v={sp.pacing.currentLesson || '—'} />
+                  <KV k="Standard" v={sp.pacing.currentStandard || '—'} />
+                </div>
+              ))}
+            </div>
+          ) : pacing ? (
             <div className="stack">
               <KV k="Unit" v={pacing.currentUnit || '—'} />
               <KV k="Lesson" v={pacing.currentLesson || '—'} />
@@ -393,12 +484,15 @@ function PacingTab({ entries }) {
       </Card>
     );
   }
+  const hasSubjects = entries.some((p) => p.subject);
+
   return (
     <Card title="Pacing history" count={entries.length} flush>
       <table className="table">
         <thead>
           <tr>
             <th>Week of</th>
+            {hasSubjects && <th>Subject</th>}
             <th>Unit</th>
             <th>Lesson</th>
             <th>Standard</th>
@@ -414,6 +508,7 @@ function PacingTab({ entries }) {
             return (
               <tr key={p.id}>
                 <td>{formatDate(p.weekOf)}</td>
+                {hasSubjects && <td>{p.subject || '—'}</td>}
                 <td>{p.currentUnit || '—'}</td>
                 <td>{p.currentLesson || '—'}</td>
                 <td>{p.currentStandard || '—'}</td>

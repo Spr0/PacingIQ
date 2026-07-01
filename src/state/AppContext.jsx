@@ -62,6 +62,8 @@ export function AppProvider({ children }) {
     pacingEntries: state.pacingEntries || [],
     assessments: state.assessments || [],
     interventions: state.interventions || [],
+    actionPlanTemplates: state.actionPlanTemplates || [],
+    actionPlans: state.actionPlans || [],
     auditLog: state.auditLog || [],
   };
 

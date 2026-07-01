@@ -10,7 +10,18 @@ import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
 import { pacingStatus } from '../lib/intelligence.js';
 import { formatDate } from '../lib/dates.js';
-import { Card, StatusBadge, RiskBadge, Badge, Empty, Field, Modal } from '../components/ui.jsx';
+import {
+  Card,
+  StatusBadge,
+  RiskBadge,
+  Badge,
+  Empty,
+  Field,
+  Modal,
+  InfoTip,
+  RISK_SCORE_TOOLTIP,
+  PACING_STATUS_TOOLTIP,
+} from '../components/ui.jsx';
 
 const STATUS_FILTERS = [
   { value: 'all', label: 'All' },
@@ -19,7 +30,7 @@ const STATUS_FILTERS = [
   { value: 'unseen', label: 'Not seen 14d' },
 ];
 
-const EMPTY_FORM = { name: '', subject: '', gradeLevel: '', assignedAdmin: '' };
+const EMPTY_FORM = { name: '', subject: '', subjects: '', gradeLevel: '', assignedAdmin: '' };
 
 export default function Teachers() {
   const { rollups, db, roleKey } = useApp();
@@ -53,16 +64,18 @@ export default function Teachers() {
   function save() {
     const name = form.name.trim();
     if (!name) return;
-    db.insert(
-      'teachers',
-      {
-        name,
-        subject: form.subject.trim(),
-        gradeLevel: form.gradeLevel.trim(),
-        assignedAdmin: form.assignedAdmin.trim(),
-      },
-      'added teacher'
-    );
+    const subjects = form.subjects
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const record = {
+      name,
+      subject: form.subject.trim() || (subjects.length ? subjects.join(', ') : ''),
+      gradeLevel: form.gradeLevel.trim(),
+      assignedAdmin: form.assignedAdmin.trim(),
+    };
+    if (subjects.length > 1) record.subjects = subjects;
+    db.insert('teachers', record, 'added teacher');
     setShowModal(false);
     setForm(EMPTY_FORM);
   }
@@ -112,10 +125,16 @@ export default function Teachers() {
                 <th>Subject</th>
                 <th>Grade</th>
                 <th>Admin</th>
-                <th>Pacing</th>
+                <th>
+                  Pacing
+                  <InfoTip text={PACING_STATUS_TOOLTIP} />
+                </th>
                 <th>Last Seen</th>
                 <th className="num">Open Actions</th>
-                <th>Risk</th>
+                <th>
+                  Risk
+                  <InfoTip text={RISK_SCORE_TOOLTIP} />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -135,10 +154,22 @@ export default function Teachers() {
                     <td>{t.gradeLevel || '—'}</td>
                     <td>{t.assignedAdmin || '—'}</td>
                     <td>
-                      <StatusBadge
-                        status={r.pacingStatus}
-                        label={pacingLabel ? `${capitalize(r.pacingStatus)} ${pacingLabel}` : undefined}
-                      />
+                      {r.multiSubject ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                          {r.pacingBySubject.map((sp) => (
+                            <StatusBadge
+                              key={sp.subject}
+                              status={sp.status}
+                              label={`${sp.subject} · ${sp.daysBehind > 0 ? `${sp.daysBehind}d behind` : 'On pace'}`}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <StatusBadge
+                          status={r.pacingStatus}
+                          label={pacingLabel ? `${capitalize(r.pacingStatus)} ${pacingLabel}` : undefined}
+                        />
+                      )}
                     </td>
                     <td style={r.seenCompliant ? undefined : { color: 'var(--red)' }}>
                       {r.lastObservation ? formatDate(r.lastObservation.date) : 'Never'}
@@ -195,6 +226,17 @@ export default function Teachers() {
                 value={form.subject}
                 onChange={(e) => setForm({ ...form, subject: e.target.value })}
                 placeholder="e.g. Algebra I"
+              />
+            </Field>
+            <Field
+              label="Subjects taught"
+              hint="comma separated, for elementary/multi-subject teachers only"
+            >
+              <input
+                className="input"
+                value={form.subjects}
+                onChange={(e) => setForm({ ...form, subjects: e.target.value })}
+                placeholder="e.g. ELA, Math"
               />
             </Field>
             <div className="form-row">

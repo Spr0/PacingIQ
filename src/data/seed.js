@@ -36,6 +36,8 @@ const teachers = [
   { id: 't_baker', name: 'Sarah Baker', subject: 'Chemistry', gradeLevel: '11', assignedAdmin: 'AP Brooks' },
   { id: 't_johnson', name: 'Marcus Johnson', subject: 'English I', gradeLevel: '9', assignedAdmin: 'Principal Adams' },
   { id: 't_patel', name: 'Priya Patel', subject: 'Physics', gradeLevel: '11', assignedAdmin: 'AP Brooks' },
+  // Elementary teacher covering multiple subjects, each paced independently.
+  { id: 't_alvarez', name: 'Jenna Alvarez', subject: 'ELA, Math', subjects: ['ELA', 'Math'], gradeLevel: '1', assignedAdmin: 'Principal Adams' },
 ];
 
 const pacingEntries = [
@@ -55,6 +57,9 @@ const pacingEntries = [
   { id: 'p_johnson', teacherId: 't_johnson', weekOf: weekOf(0), currentUnit: 'Unit 2: Narrative Craft', currentLesson: 'Lesson 2.6', currentStandard: 'W.9.3', daysBehind: 0, exceptionReason: '', notes: '' },
   // Patel: green but not observed recently (handled via observations)
   { id: 'p_patel', teacherId: 't_patel', weekOf: weekOf(0), currentUnit: 'Unit 4: Forces', currentLesson: 'Lesson 4.4', currentStandard: 'HS-PS2-1', daysBehind: 1, exceptionReason: '', notes: '' },
+  // Alvarez: multi-subject elementary pacing, each subject tracked on its own entry.
+  { id: 'p_alvarez_ela', teacherId: 't_alvarez', weekOf: weekOf(0), subject: 'ELA', currentUnit: 'Unit 3: Phonics & Fluency', currentLesson: 'Lesson 3.4', currentStandard: 'RF.1.3', daysBehind: 0, exceptionReason: '', notes: 'On track.' },
+  { id: 'p_alvarez_math', teacherId: 't_alvarez', weekOf: weekOf(0), subject: 'Math', currentUnit: 'Unit 4: Addition Strategies', currentLesson: 'Lesson 4.2', currentStandard: '1.OA.C.6', daysBehind: 10, exceptionReason: '', notes: 'Extra reteach time on double-digit strategies.' },
 ];
 
 const observations = [
@@ -141,6 +146,23 @@ const observations = [
     createdBy: 'coach',
     sharedWithTeacher: { whole: false, sections: [] },
   },
+  {
+    id: 'o_alvarez_1', teacherId: 't_alvarez', date: iso(-5), time: '09:30',
+    lessonObserved: 'Double-digit addition with regrouping', standard: '1.OA.C.6',
+    evidence: 'Small-group rotation with manipulatives during math block.',
+    engagementLevel: 'Medium', evidenceOfLearning: 'Exit ticket showed mixed mastery on regrouping.',
+    teacherActions: 'Ran three rotations, one teacher-led reteach group.',
+    studentActions: 'Worked with base-ten blocks in small groups.',
+    strengths: 'Strong small-group management and clear modeling during ELA block.',
+    areasForGrowth: 'Math pacing is slipping behind the unit map; regrouping needs more guided practice.',
+    feedbackProvided: 'Discussed a shorter daily fluency warm-up to reclaim time in the math block.',
+    followUpObservationDate: iso(9),
+    actionItems: [
+      { id: 'a_alv1', description: 'Add a 5 minute daily regrouping fluency warm-up', owner: 'Jenna Alvarez', dueDate: iso(5), status: 'Open' },
+    ],
+    createdBy: 'coach',
+    sharedWithTeacher: { whole: false, sections: [] },
+  },
 ];
 
 const assessments = [
@@ -194,11 +216,81 @@ const interventions = [
   },
 ];
 
+// Common/broad action plan templates. Pre-built and reusable across teachers;
+// coaches can also create their own from the Action Plans tab on any teacher.
+const actionPlanTemplates = [
+  {
+    id: 'tpl_pacing_recovery',
+    title: 'Pacing Recovery Plan',
+    category: 'Pacing',
+    description: 'For teachers 4+ days behind the pacing guide with limited formative checks.',
+    steps: [
+      { id: 'tpl_pr_s1', description: 'Co-plan a compressed pacing map for the current unit', defaultOwner: 'Coach' },
+      { id: 'tpl_pr_s2', description: 'Embed a formative check every 15 minutes', defaultOwner: 'Teacher' },
+      { id: 'tpl_pr_s3', description: 'Schedule a follow-up observation focused on pacing and checks for understanding', defaultOwner: 'Coach' },
+    ],
+  },
+  {
+    id: 'tpl_engagement',
+    title: 'Engagement & Rigor Plan',
+    category: 'Instruction',
+    description: 'For classrooms with low observed engagement or passive student participation.',
+    steps: [
+      { id: 'tpl_en_s1', description: 'Model one active-processing structure (turn-and-talk, whiteboard relay, etc.)', defaultOwner: 'Coach' },
+      { id: 'tpl_en_s2', description: 'Add one formative check for understanding per lesson segment', defaultOwner: 'Teacher' },
+      { id: 'tpl_en_s3', description: 'Co-observe a peer classroom using the structure', defaultOwner: 'Coach' },
+    ],
+  },
+  {
+    id: 'tpl_assessment_readiness',
+    title: 'Assessment Readiness Plan',
+    category: 'Assessment',
+    description: 'For teachers with a downward assessment trend or low proficiency ahead of an upcoming unit test.',
+    steps: [
+      { id: 'tpl_ar_s1', description: 'Review item-level results from the most recent unit test', defaultOwner: 'Coach' },
+      { id: 'tpl_ar_s2', description: 'Build a targeted reteach block for the lowest-proficiency standard', defaultOwner: 'Teacher' },
+      { id: 'tpl_ar_s3', description: 'Give a low-stakes formative check before the next unit test', defaultOwner: 'Teacher' },
+    ],
+  },
+  {
+    id: 'tpl_new_teacher',
+    title: 'New Teacher Onboarding Support',
+    category: 'Onboarding',
+    description: 'General first-90-days support plan for a new or early-career teacher.',
+    steps: [
+      { id: 'tpl_nt_s1', description: 'Weekly check-in for the first six weeks', defaultOwner: 'Coach' },
+      { id: 'tpl_nt_s2', description: 'Share the pacing guide and current unit map', defaultOwner: 'Coach' },
+      { id: 'tpl_nt_s3', description: 'Pair with a grade-level or department mentor', defaultOwner: 'Coach' },
+    ],
+  },
+];
+
+// Teacher-specific action plans, editable per teacher. This one started from a
+// template so the "started from template, then customized" flow has an example.
+const actionPlans = [
+  {
+    id: 'ap_torres_1',
+    teacherId: 't_torres',
+    title: 'Pacing Recovery Plan',
+    templateId: 'tpl_pacing_recovery',
+    source: 'template',
+    createdAt: iso(-7),
+    updatedAt: iso(-1),
+    steps: [
+      { id: 'ap_tor_s1', description: 'Co-plan a compressed Unit 3 pacing map', owner: 'Coach', dueDate: iso(-1), status: 'Complete' },
+      { id: 'ap_tor_s2', description: 'Embed a formative check every 15 minutes', owner: 'Luis Torres', dueDate: iso(3), status: 'In Progress' },
+      { id: 'ap_tor_s3', description: 'Follow-up observation focused on engagement', owner: 'Coach', dueDate: iso(4), status: 'Open' },
+    ],
+  },
+];
+
 export const SEED = {
   teachers,
   observations,
   pacingEntries,
   assessments: [...assessments, ...upcomingAssessments],
   interventions,
+  actionPlanTemplates,
+  actionPlans,
   auditLog: [],
 };

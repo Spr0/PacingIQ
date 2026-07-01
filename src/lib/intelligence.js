@@ -27,6 +27,41 @@ export function latestPacing(teacherId, pacingEntries) {
     .sort((a, b) => (a.weekOf < b.weekOf ? 1 : -1))[0] || null;
 }
 
+// Elementary (and any multi-subject) teachers log pacing per subject. Each
+// pacing entry may carry an optional `subject` field; entries without one are
+// grouped together under a single implicit subject, so single-subject
+// teachers behave exactly as before. Returns the latest entry per subject,
+// sorted by subject name.
+export function pacingEntriesBySubject(teacherId, pacingEntries) {
+  const mine = pacingEntries.filter((p) => p.teacherId === teacherId);
+  const groups = new Map();
+  mine.forEach((p) => {
+    const key = p.subject || null;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(p);
+  });
+  return Array.from(groups.entries())
+    .map(([subject, entries]) => {
+      const latest = entries.sort((a, b) => (a.weekOf < b.weekOf ? 1 : -1))[0];
+      const daysBehind = Number(latest.daysBehind) || 0;
+      return { subject, pacing: latest, daysBehind, status: pacingStatus(daysBehind) };
+    })
+    .sort((a, b) => (a.subject || '').localeCompare(b.subject || ''));
+}
+
+// "1" -> "1st Grade", "K" -> "Kindergarten", etc. Used to label per-subject
+// pacing rows for multi-subject (typically elementary) teachers.
+export function gradeLabel(gradeLevel) {
+  if (gradeLevel == null || gradeLevel === '') return null;
+  const g = String(gradeLevel).trim();
+  if (/^k(indergarten)?$/i.test(g)) return 'Kindergarten';
+  const n = Number(g);
+  if (!Number.isFinite(n)) return `Grade ${g}`;
+  const mod100 = n % 100;
+  const suffix = mod100 >= 11 && mod100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th';
+  return `${n}${suffix} Grade`;
+}
+
 // Most recent observation for a teacher (by date).
 export function latestObservation(teacherId, observations) {
   return observations
@@ -156,7 +191,20 @@ export function riskScore(rollupInputs) {
 export function buildRollup(teacher, collections) {
   const { observations, pacingEntries, assessments, interventions } = collections;
 
-  const pacing = latestPacing(teacher.id, pacingEntries);
+  // Per-subject breakdown first. For a single-subject teacher this collapses
+  // to one group, so `pacing`/`daysBehind` below match prior behavior exactly.
+  const subjectPacing = pacingEntriesBySubject(teacher.id, pacingEntries).map((sp) => ({
+    ...sp,
+    label: sp.subject ? [gradeLabel(teacher.gradeLevel), sp.subject].filter(Boolean).join(' ') : null,
+  }));
+  const multiSubject = subjectPacing.length > 1;
+  // The worst (most behind) subject drives the aggregate pacing fields used by
+  // the risk score and every list/table that isn't subject-aware.
+  const worstSubject = subjectPacing.length
+    ? subjectPacing.reduce((a, b) => (b.daysBehind > a.daysBehind ? b : a))
+    : null;
+  const pacing = worstSubject ? worstSubject.pacing : null;
+
   const lastObs = latestObservation(teacher.id, observations);
   const assessList = teacherAssessments(teacher.id, assessments);
   const intervention = activeIntervention(teacher.id, interventions);
@@ -179,6 +227,8 @@ export function buildRollup(teacher, collections) {
   return {
     teacher,
     pacing,
+    pacingBySubject: subjectPacing,
+    multiSubject,
     pacingStatus: pacingStatus(daysBehind),
     daysBehind,
     lastObservation: lastObs,

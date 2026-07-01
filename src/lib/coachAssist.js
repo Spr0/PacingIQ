@@ -16,7 +16,7 @@ export const CONTENT_TYPES = [
   { key: 'principal_report', label: 'Principal report' },
   { key: 'follow_up_email', label: 'Follow-up email' },
   { key: 'meeting_agenda', label: 'Meeting agenda' },
-  { key: 'action_plan', label: 'Action plan' },
+  { key: 'action_plan', label: 'Action Plan' },
 ];
 
 export function labelFor(kind) {

@@ -19,6 +19,8 @@ const COLLECTIONS = [
   'pacingEntries',
   'assessments',
   'interventions',
+  'actionPlanTemplates',
+  'actionPlans',
   'auditLog',
 ];
 

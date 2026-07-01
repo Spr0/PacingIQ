@@ -25,12 +25,27 @@ function genId() {
   return 'ai_' + Math.random().toString(36).slice(2, 9);
 }
 
-export default function CoachAssistant({ rollup, observations, assessments, onClose }) {
+// One-line explanation of what each generator does, shown before the coach
+// clicks Generate so the trigger and its effect are never a surprise.
+const EXPLANATIONS = {
+  summary:
+    'Drafts a two-paragraph private coaching summary from this teacher’s current pacing, most recent observation, and assessment signal.',
+  principal_report:
+    'Drafts a brief, objective status report for the principal: current status, key concern, support provided, and recommended next step.',
+  follow_up_email:
+    'Drafts a follow-up email from you to the teacher: one strength, one growth focus, and one concrete next step.',
+  meeting_agenda:
+    'Drafts a focused coaching meeting agenda from this teacher’s current pacing, assessment signal, and open action items.',
+  action_plan:
+    'Drafts a short action plan: the concern, the likely root cause, three agreed actions with owners, and a follow-up checkpoint.',
+};
+
+export default function CoachAssistant({ rollup, observations, assessments, initialKind, onClose }) {
   const { user, db, teachers } = useApp();
   const teacher = teachers.find((t) => t.id === rollup.teacher.id) || rollup.teacher;
   const saved = teacher.aiDrafts || [];
 
-  const [kind, setKind] = useState('summary');
+  const [kind, setKind] = useState(initialKind || 'summary');
   const [draft, setDraft] = useState('');
   const [source, setSource] = useState(null); // 'ai' | 'demo'
   const [loading, setLoading] = useState(false);
@@ -125,9 +140,20 @@ export default function CoachAssistant({ rollup, observations, assessments, onCl
           ))}
         </div>
 
+        {EXPLANATIONS[kind] && (
+          <p className="muted small" style={{ margin: 0 }}>
+            {EXPLANATIONS[kind]}
+          </p>
+        )}
+
         <div className="row" style={{ gap: 10 }}>
           <button className="btn btn--primary" onClick={generate} disabled={loading}>
-            <Icon name="sparkle" /> {loading ? 'Generating...' : draft ? 'Regenerate' : `Generate ${labelFor(kind).toLowerCase()}`}
+            <Icon name="sparkle" />{' '}
+            {loading
+              ? 'Generating...'
+              : draft
+              ? `Regenerate ${labelFor(kind)} with AI`
+              : `Generate ${labelFor(kind)} with AI`}
           </button>
           {draft && (
             <button className="btn" onClick={() => navigator.clipboard?.writeText(draft)}>
