@@ -2,8 +2,9 @@
 // AI Coaching Assistant — Netlify Function.
 //
 // Generates coaching content (summary, principal report, follow-up email,
-// meeting agenda, action-plan recommendation) from facts supplied by the
-// client. The model is read from process.env.ANTHROPIC_MODEL with no fallback,
+// meeting agenda, meeting notes, action-item list, action-plan recommendation)
+// from facts supplied by the client. The model is read from
+// process.env.ANTHROPIC_MODEL with no fallback,
 // so a missing config fails loudly rather than silently shipping a wrong model.
 //
 // All generated content is a DRAFT. The UI requires human approval before it is
@@ -36,6 +37,17 @@ including a subject line on the first line.${SHARED_STYLE}`,
   meeting_agenda: `You are an instructional coaching assistant. Create a focused coaching meeting
 agenda of four to six items with a short note under each, based on the teacher's
 current pacing, assessment signal, and open action items. Use a numbered list.${SHARED_STYLE}`,
+
+  meeting_notes: `You are an instructional coaching assistant. Draft notes for a coaching meeting
+that just took place, grounded only in the provided facts. Cover what was discussed
+(pacing, recent observation, assessment signal), decisions reached, and the agreed
+next steps. Use short headed sections: Discussion, Decisions, Next steps. Do not
+invent anything that is not supported by the context.${SHARED_STYLE}`,
+
+  action_item_list: `You are an instructional coaching assistant. Produce a clean, actionable list of
+the teacher's open and agreed action items. For each item give the action, the
+owner, and the due date when available. Use a numbered list, one item per line, no
+preamble.${SHARED_STYLE}`,
 
   action_plan: `You are an instructional coaching assistant. Recommend a short intervention action
 plan: the concern, the most likely root cause, three agreed actions each with an

@@ -25,6 +25,19 @@ import { Card, Badge, Empty, Field, Modal } from '../components/ui.jsx';
 const ENGAGEMENT_LEVELS = ['Low', 'Medium', 'High'];
 const ACTION_STATUSES = ['Open', 'In Progress', 'Complete'];
 
+// The units of an observation the coach can selectively share with the observed
+// teacher. Leadership can share the whole note (stored as `whole`) or any subset
+// of these (stored as `sections`). The three feedback fields are individually
+// shareable so leadership can release "selected feedback" per the privacy model.
+const SHAREABLE_SECTIONS = [
+  { key: 'observation', label: 'Observation Information', group: 'section' },
+  { key: 'strengths', label: 'Strengths', group: 'feedback' },
+  { key: 'growth', label: 'Areas for growth', group: 'feedback' },
+  { key: 'feedback', label: 'Feedback provided', group: 'feedback' },
+  { key: 'followUp', label: 'Follow-up and action items', group: 'section' },
+  { key: 'attachments', label: 'Attachments', group: 'section' },
+];
+
 const nid = () => 'ai_' + Math.random().toString(36).slice(2, 9);
 
 function engagementTone(level) {
@@ -264,11 +277,28 @@ export default function Observations() {
   }
 
   function toggleShareWhole(obs, checked) {
+    const current = (obs.sharedWithTeacher && obs.sharedWithTeacher.sections) || [];
     db.update(
       'observations',
       obs.id,
-      { sharedWithTeacher: { whole: checked, sections: [] } },
-      'shared observation with teacher'
+      // Sharing the whole note supersedes section selections; unsharing it
+      // preserves any per-section choices the coach had made.
+      { sharedWithTeacher: { whole: checked, sections: current } },
+      checked ? 'shared observation with teacher' : 'updated observation sharing'
+    );
+  }
+
+  function toggleShareSection(obs, sectionKey, checked) {
+    const shared = obs.sharedWithTeacher || { whole: false, sections: [] };
+    const current = shared.sections || [];
+    const sections = checked
+      ? Array.from(new Set([...current, sectionKey]))
+      : current.filter((k) => k !== sectionKey);
+    db.update(
+      'observations',
+      obs.id,
+      { sharedWithTeacher: { whole: !!shared.whole, sections } },
+      'updated observation sharing'
     );
   }
 
@@ -404,6 +434,7 @@ export default function Observations() {
             teacherName={teacherName[viewing.teacherId]}
             writable={writable}
             onShareWhole={(checked) => toggleShareWhole(viewing, checked)}
+            onShareSection={(key, checked) => toggleShareSection(viewing, key, checked)}
           />
         </Modal>
       )}
@@ -656,11 +687,15 @@ export default function Observations() {
 }
 
 // Read-only rendering of a full observation record, plus the leadership sharing
-// control when the current role can write.
-function ViewBody({ obs, teacherName, writable, onShareWhole }) {
+// control when the current role can write. Sections and feedback fields the
+// teacher can see are flagged with a "Shared" pill.
+function ViewBody({ obs, teacherName, writable, onShareWhole, onShareSection }) {
+  const shared = obs.sharedWithTeacher || { whole: false, sections: [] };
+  const isShared = (key) => !!shared.whole || (shared.sections || []).includes(key);
+
   return (
     <div className="stack">
-      <div className="section-title">Observation Information</div>
+      <SectionTitle shared={isShared('observation')}>Observation Information</SectionTitle>
       <ReadRow label="Teacher" value={teacherName} />
       <ReadRow label="Date" value={formatDate(obs.date)} />
       <ReadRow label="Time" value={obs.time} />
@@ -675,11 +710,11 @@ function ViewBody({ obs, teacherName, writable, onShareWhole }) {
       <ReadRow label="Student actions" value={obs.studentActions} block />
 
       <div className="section-title">Feedback</div>
-      <ReadRow label="Strengths" value={obs.strengths} block />
-      <ReadRow label="Areas for growth" value={obs.areasForGrowth} block />
-      <ReadRow label="Feedback provided" value={obs.feedbackProvided} block />
+      <ReadRow label="Strengths" value={obs.strengths} block shared={isShared('strengths')} />
+      <ReadRow label="Areas for growth" value={obs.areasForGrowth} block shared={isShared('growth')} />
+      <ReadRow label="Feedback provided" value={obs.feedbackProvided} block shared={isShared('feedback')} />
 
-      <div className="section-title">Follow Up</div>
+      <SectionTitle shared={isShared('followUp')}>Follow Up</SectionTitle>
       {(obs.actionItems || []).length === 0 ? (
         <ReadRow label="Action items" value="" />
       ) : (
@@ -705,7 +740,7 @@ function ViewBody({ obs, teacherName, writable, onShareWhole }) {
       )}
       <ReadRow label="Follow-up observation date" value={formatDate(obs.followUpObservationDate)} />
 
-      <div className="section-title">Attachments</div>
+      <SectionTitle shared={isShared('attachments')}>Attachments</SectionTitle>
       {(obs.attachments || []).length === 0 ? (
         <p className="muted small">No files attached.</p>
       ) : (
@@ -730,13 +765,29 @@ function ViewBody({ obs, teacherName, writable, onShareWhole }) {
           <label className="row" style={{ gap: 8 }}>
             <input
               type="checkbox"
-              checked={!!(obs.sharedWithTeacher && obs.sharedWithTeacher.whole)}
+              checked={!!shared.whole}
               onChange={(e) => onShareWhole(e.target.checked)}
             />
             <span>Share entire note</span>
           </label>
+          <div className="stack" style={{ gap: 6, marginTop: 8, paddingLeft: 24 }}>
+            {SHAREABLE_SECTIONS.map((s) => (
+              <label key={s.key} className="row" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={isShared(s.key)}
+                  disabled={!!shared.whole}
+                  onChange={(e) => onShareSection(s.key, e.target.checked)}
+                />
+                <span>
+                  {s.group === 'feedback' ? 'Feedback' : 'Section'}: {s.label}
+                </span>
+              </label>
+            ))}
+          </div>
           <p className="muted small">
-            Nothing is shared with the teacher automatically. Leadership chooses what to share.
+            Nothing is shared with the teacher automatically. Share the entire note, or choose
+            individual sections and feedback to release.
           </p>
         </>
       )}
@@ -744,11 +795,23 @@ function ViewBody({ obs, teacherName, writable, onShareWhole }) {
   );
 }
 
-function ReadRow({ label, value, children, block }) {
+function SectionTitle({ children, shared }) {
+  return (
+    <div className="section-title" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <span>{children}</span>
+      {shared && <Badge tone="green">Shared</Badge>}
+    </div>
+  );
+}
+
+function ReadRow({ label, value, children, block, shared }) {
   const content = children != null ? children : value ? value : <span className="faint">—</span>;
   return (
     <div className="field">
-      <label>{label}</label>
+      <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+        {label}
+        {shared && <Badge tone="green">Shared</Badge>}
+      </label>
       {block ? <p className="small" style={{ margin: 0 }}>{content}</p> : <div>{content}</div>}
     </div>
   );

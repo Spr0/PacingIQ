@@ -52,8 +52,9 @@ The first deployable slice covers the daily-driver coaching loop:
 - **Action Plans** — reusable common templates plus editable teacher-specific
   plans, created from a template or from scratch.
 - **Attachments** — files (PDFs, photos, student work, forms) attached to
-  observations. Demo storage embeds small files (2MB cap) directly in
-  `localStorage`; real blob storage is a re-platform concern (see Fast-follow).
+  observations. File bytes are stored in Netlify Blobs via serverless
+  upload/get/delete functions; observation records keep only the blob key and
+  metadata. Moving to Dataverse / district blob storage is a re-platform concern.
 - **Multi-subject pacing** — elementary/multi-subject teachers get independent
   pacing status per subject everywhere pacing is shown.
 
@@ -111,8 +112,8 @@ locally templated demo fallback offline.
 ## Fast-follow (not yet built)
 
 The weekly intelligence email, AI lesson/calendar reader, action plans, and
-file attachments are built. Still to come, and blocked on real OAuth
-credentials this environment doesn't have:
+file attachments (now on Netlify Blobs) are built. Still to come, and blocked
+on real OAuth credentials this environment doesn't have:
 
 - **Live Google Classroom sync** — the AI Pacing Calendar Reader covers the
   spec's manual-upload path today; direct Classroom sync needs a registered
@@ -120,9 +121,10 @@ credentials this environment doesn't have:
 - **Live Google Calendar integration** — meeting agendas are already AI-
   generated (Coaching Assistant); creating real calendar invitations needs the
   same OAuth setup.
-- **Production-grade file storage** — today's attachments are demo-capped
-  (2MB, embedded in `localStorage`). Re-platforming onto Dataverse / blob
-  storage removes the size ceiling.
+- **Dataverse re-platform** — attachments already use Netlify Blobs instead of
+  `localStorage`, so there is no demo size ceiling. Moving all persistence
+  (records + blobs) onto district Dataverse / blob storage is the production
+  re-platform step, isolated to `src/data/store.js` and the attachment functions.
 
 ## Architecture notes
 

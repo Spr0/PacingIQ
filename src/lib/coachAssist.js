@@ -16,6 +16,8 @@ export const CONTENT_TYPES = [
   { key: 'principal_report', label: 'Principal report' },
   { key: 'follow_up_email', label: 'Follow-up email' },
   { key: 'meeting_agenda', label: 'Meeting agenda' },
+  { key: 'meeting_notes', label: 'Meeting notes' },
+  { key: 'action_item_list', label: 'Action item list' },
   { key: 'action_plan', label: 'Action Plan' },
 ];
 
@@ -157,6 +159,32 @@ export function localDraft(kind, rollup, observations, assessments, coachName) {
 
     case 'meeting_agenda':
       return `Coaching meeting agenda: ${t.name}\n\n1. Pacing check. Currently ${pacing}${rollup.pacing ? ` in ${rollup.pacing.currentUnit}` : ''}.\n2. Recent observation debrief. Strength: ${strength}. Growth: ${growth}.\n3. ${test ? `Assessment review. ${test.name}: ${test.avgScore} average, ${test.proficiencyPct ?? 'n/a'}% proficiency.` : 'Assessment readiness for the next unit test.'}\n4. Action items. ${rollup.outstandingActions.length ? `${rollup.outstandingActions.length} open item(s) to review.` : 'Set one or two focused next steps.'}\n5. Agreed next step: ${next}.\n6. Schedule the next touchpoint.`;
+
+    case 'meeting_notes': {
+      const items = rollup.outstandingActions.length
+        ? rollup.outstandingActions
+            .map((a) => `- ${a.description}${a.owner ? ` (owner: ${a.owner})` : ''}`)
+            .join('\n')
+        : `- ${next}`;
+      return `Coaching meeting notes: ${t.name}\n\nDiscussion:\nReviewed pacing (${pacing}${
+        rollup.pacing ? ` in ${rollup.pacing.currentUnit}` : ''
+      }) and the recent observation. Strength noted: ${strength}. Growth focus: ${growth}.${
+        test ? ` Reviewed ${test.name}: ${test.avgScore} average, ${test.proficiencyPct ?? 'n/a'}% proficiency.` : ''
+      }\n\nDecisions:\nAgreed to prioritize ${growth.toLowerCase()} over the next two weeks.\n\nNext steps:\n${items}\nNext support: ${next}.`;
+    }
+
+    case 'action_item_list':
+      return rollup.outstandingActions.length
+        ? `Action items: ${t.name}\n\n` +
+            rollup.outstandingActions
+              .map(
+                (a, i) =>
+                  `${i + 1}. ${a.description} (owner: ${a.owner || 'n/a'}, due: ${
+                    a.dueDate ? formatDate(a.dueDate) : 'n/a'
+                  }, status: ${a.status})`
+              )
+              .join('\n')
+        : `Action items: ${t.name}\n\n1. ${next} (owner: Coach, due: within two weeks, status: Open)`;
 
     case 'action_plan':
       return `Action plan: ${t.name}\n\nConcern: ${rollup.risk.factors[0] || `${pacing}`}.\nLikely root cause: ${

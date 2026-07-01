@@ -36,6 +36,10 @@ const EXPLANATIONS = {
     'Drafts a follow-up email from you to the teacher: one strength, one growth focus, and one concrete next step.',
   meeting_agenda:
     'Drafts a focused coaching meeting agenda from this teacher’s current pacing, assessment signal, and open action items.',
+  meeting_notes:
+    'Drafts post-meeting notes: what was discussed, decisions reached, and agreed next steps, grounded in this teacher’s records.',
+  action_item_list:
+    'Drafts a clean list of this teacher’s open and agreed action items with owner and due date for each.',
   action_plan:
     'Drafts a short action plan: the concern, the likely root cause, three agreed actions with owners, and a follow-up checkpoint.',
 };
