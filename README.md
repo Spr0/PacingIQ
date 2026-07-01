@@ -109,13 +109,13 @@ assessment dates. The coach reviews and edits every row, then **Approve and
 Import** bulk-creates pacing entries and upcoming assessment records. Nothing is
 imported automatically.
 
-CSV and Excel files are read to text in the browser (Excel via SheetJS loaded
-on demand from its ESM CDN, so nothing is added to the bundle), then flow
-through the same reader as pasted text. PDFs are handed to the model as a native
-document block by `netlify/functions/calendar-reader.js`, so reading a PDF needs
-the live function; paste or CSV/Excel upload also works against the offline demo
-fallback. Same `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` config as the other AI
-features.
+Uploaded files are reduced to text in the browser and then flow through the same
+reader as pasted text: CSV/TXT directly, Excel via SheetJS, and PDF via pdf.js
+(both loaded on demand from their ESM CDNs, so nothing is added to the bundle).
+Because extraction is client-side, uploads work the same in local dev (offline
+demo read) and on the deployed site (live read); scanned PDFs with no selectable
+text are rejected with a note to paste the text instead. Same
+`ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` config as the other AI features.
 
 ## Fast-follow (not yet built)
 
