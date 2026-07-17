@@ -74,6 +74,7 @@ export function AppProvider({ children }) {
     interventions: state.interventions || [],
     actionPlanTemplates: state.actionPlanTemplates || [],
     actionPlans: state.actionPlans || [],
+    goals: state.goals || [],
     auditLog: state.auditLog || [],
   };
 

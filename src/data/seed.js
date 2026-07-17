@@ -284,6 +284,35 @@ const actionPlans = [
   },
 ];
 
+// Teacher-specific goals: a single target with one owner, one date, one
+// status (unlike an action plan, which is a title plus several steps).
+const goals = [
+  {
+    id: 'g_rivera_1',
+    teacherId: 't_rivera',
+    title: 'Raise exit-ticket mastery on linear functions to 80%',
+    notes: 'Tied to the Unit 4 reteach; check progress against each new exit ticket.',
+    category: 'Assessment',
+    owner: 'Maria Rivera',
+    targetDate: iso(21),
+    status: 'In Progress',
+    createdAt: iso(-5),
+    updatedAt: iso(-1),
+  },
+  {
+    id: 'g_torres_1',
+    teacherId: 't_torres',
+    title: 'Embed a formative check every 15 minutes by Unit 4',
+    notes: '',
+    category: 'Instruction',
+    owner: 'Luis Torres',
+    targetDate: iso(10),
+    status: 'Open',
+    createdAt: iso(-2),
+    updatedAt: iso(-2),
+  },
+];
+
 export const SEED = {
   teachers,
   observations,
@@ -292,6 +321,7 @@ export const SEED = {
   interventions,
   actionPlanTemplates,
   actionPlans,
+  goals,
   auditLog: [],
 };
 

@@ -24,6 +24,7 @@ import {
 import { Icon } from '../components/icons.jsx';
 import CoachAssistant from '../components/CoachAssistant.jsx';
 import ActionPlans from '../components/ActionPlans.jsx';
+import Goals from '../components/Goals.jsx';
 import LessonPlanReader from '../components/LessonPlanReader.jsx';
 
 const TABS = [
@@ -32,6 +33,7 @@ const TABS = [
   'Pacing',
   'Assessments',
   'Interventions',
+  'Goals',
   'Action Plans',
   'Coaching Notes',
 ];
@@ -48,6 +50,7 @@ export default function TeacherDetail() {
     interventions,
     actionPlans,
     actionPlanTemplates,
+    goals,
     db,
     roleKey,
   } = useApp();
@@ -93,6 +96,7 @@ export default function TeacherDetail() {
     () => actionPlans.filter((p) => p.teacherId === id),
     [actionPlans, id]
   );
+  const myGoals = useMemo(() => goals.filter((g) => g.teacherId === id), [goals, id]);
 
   if (!rollup) {
     return (
@@ -210,6 +214,9 @@ export default function TeacherDetail() {
       {tab === 'Pacing' && <PacingTab entries={myPacing} />}
       {tab === 'Assessments' && <AssessmentsTab assessments={myAssessments} />}
       {tab === 'Interventions' && <InterventionsTab interventions={myInterventions} />}
+      {tab === 'Goals' && (
+        <Goals teacherId={id} teacherName={teacher.name} goals={myGoals} db={db} writable={writable} />
+      )}
       {tab === 'Action Plans' && (
         <ActionPlans
           teacherId={id}

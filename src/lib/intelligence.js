@@ -83,8 +83,8 @@ export function activeIntervention(teacherId, interventions) {
 }
 
 // Collect outstanding (not complete) action items for a teacher across
-// observations and interventions.
-export function outstandingActions(teacherId, observations, interventions) {
+// observations, interventions, and goals.
+export function outstandingActions(teacherId, observations, interventions, goals = []) {
   const items = [];
   observations
     .filter((o) => o.teacherId === teacherId)
@@ -104,6 +104,24 @@ export function outstandingActions(teacherId, observations, interventions) {
         }
       })
     );
+  // A goal is a single target rather than a list of steps, so it maps
+  // straight onto the shared action-item shape (description/owner/dueDate)
+  // instead of iterating a nested collection like the two blocks above.
+  goals
+    .filter((g) => g.teacherId === teacherId)
+    .forEach((g) => {
+      if (g.status !== 'Complete') {
+        items.push({
+          id: g.id,
+          description: g.title,
+          owner: g.owner,
+          dueDate: g.targetDate,
+          status: g.status,
+          source: 'Goal',
+          sourceId: g.id,
+        });
+      }
+    });
   return items;
 }
 
@@ -189,7 +207,7 @@ export function riskScore(rollupInputs) {
 // teacher detail view, and Coaching Impact Report need.
 // ---------------------------------------------------------------------------
 export function buildRollup(teacher, collections) {
-  const { observations, pacingEntries, assessments, interventions } = collections;
+  const { observations, pacingEntries, assessments, interventions, goals } = collections;
 
   // Per-subject breakdown first. For a single-subject teacher this collapses
   // to one group, so `pacing`/`daysBehind` below match prior behavior exactly.
@@ -208,7 +226,7 @@ export function buildRollup(teacher, collections) {
   const lastObs = latestObservation(teacher.id, observations);
   const assessList = teacherAssessments(teacher.id, assessments);
   const intervention = activeIntervention(teacher.id, interventions);
-  const actions = outstandingActions(teacher.id, observations, interventions);
+  const actions = outstandingActions(teacher.id, observations, interventions, goals);
   const overdue = actions.filter(isOverdue);
 
   const dsObs = lastObs ? daysSince(lastObs.date) : null;

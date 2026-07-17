@@ -24,6 +24,7 @@ const COLLECTIONS = [
   'interventions',
   'actionPlanTemplates',
   'actionPlans',
+  'goals',
   'auditLog',
 ];
 

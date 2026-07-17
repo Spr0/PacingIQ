@@ -51,6 +51,14 @@ The first deployable slice covers the daily-driver coaching loop:
 - **Audit Log** — activity and change history, including mock login (role switch).
 - **Action Plans** — reusable common templates plus editable teacher-specific
   plans, created from a template or from scratch.
+- **Goals** — a single target per teacher (owner, target date, status) that
+  appears in that teacher's outstanding action items everywhere the app shows
+  them (Overview tab, Dashboard, Coaching Impact Report, Weekly Email) until
+  marked Complete. A goal with a target date can be pushed to the coach's
+  Google Calendar or Outlook via their own web "add event" link, or downloaded
+  as a `.ics` file — real, working links, no OAuth required. Automatic
+  two-way sync (a goal edit updating an existing Google Classroom/Outlook
+  event) is a fast-follow; see below.
 - **Attachments** — files (PDFs, photos, student work, forms) attached to
   observations. File bytes are stored in Netlify Blobs via serverless
   upload/get/delete functions; observation records keep only the blob key and
@@ -128,7 +136,10 @@ on real OAuth credentials this environment doesn't have:
   Google Cloud OAuth client.
 - **Live Google Calendar integration** — meeting agendas are already AI-
   generated (Coaching Assistant); creating real calendar invitations needs the
-  same OAuth setup.
+  same OAuth setup. Goals already export to Google Calendar / Outlook via
+  their own web links and `.ics` (see Goals above); automatic two-way sync —
+  a goal edit or completion updating an event already on the coach's calendar
+  — needs the same OAuth client.
 - **Dataverse re-platform** — attachments already use Netlify Blobs instead of
   `localStorage`, so there is no demo size ceiling. Moving all persistence
   (records + blobs) onto district Dataverse / blob storage is the production
