@@ -10,6 +10,17 @@ export function today() {
 
 export function parse(value) {
   if (!value) return null;
+  // "YYYY-MM-DD" is parsed as UTC midnight per spec, but every other function
+  // in this module (today(), daysBetween(), etc.) works in local time.
+  // Reconciling the two by calling setHours() on a UTC-parsed date shifts the
+  // calendar date back a day in any timezone behind UTC. Every date this app
+  // stores is date-only, so build the Date from local numeric parts instead
+  // and skip the UTC round-trip entirely.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (dateOnly) {
+    const [, y, m, day] = dateOnly;
+    return new Date(Number(y), Number(m) - 1, Number(day));
+  }
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   d.setHours(0, 0, 0, 0);
