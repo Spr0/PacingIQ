@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 
 export const ROLES = {
-  coach: { key: 'coach', label: 'Instructional Coach', name: 'Jordan Lee', initials: 'JL' },
+  coach: { key: 'coach', label: 'Instructional Coach', name: 'Stacy Eilander', initials: 'SE' },
   principal: { key: 'principal', label: 'Principal', name: 'Principal Adams', initials: 'PA' },
   ap: { key: 'ap', label: 'Assistant Principal', name: 'AP Brooks', initials: 'AB' },
 };
