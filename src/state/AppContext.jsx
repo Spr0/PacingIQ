@@ -56,6 +56,11 @@ export function AppProvider({ children }) {
     setState(store.loadState());
   }, []);
 
+  const clearDummy = useCallback(() => {
+    store.clearDummyData();
+    setState(store.loadState());
+  }, []);
+
   // Mock auth: switching roles stands in for logging in as that persona.
   // Logged so the audit trail's login history claim is actually true.
   const switchRole = useCallback((key) => {
@@ -99,6 +104,7 @@ export function AppProvider({ children }) {
     db,
     refresh,
     resetDemo,
+    clearDummy,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

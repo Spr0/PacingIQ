@@ -71,6 +71,28 @@ export function resetState() {
   return state;
 }
 
+// Collections that hold demo-only records tied to a fake teacher. Templates
+// and the audit log are real, reusable content and are never touched here.
+const DUMMY_COLLECTIONS = COLLECTIONS.filter(
+  (c) => c !== 'actionPlanTemplates' && c !== 'auditLog'
+);
+
+// Removes exactly the records that shipped in SEED (matched by id), leaving
+// everything else — including real records a coach has already entered —
+// untouched. Safe to run at any point, including after real data exists,
+// as long as nobody edited a seeded record in place instead of creating a
+// fresh one (which would keep the original t_rivera-style id).
+export function clearDummyData() {
+  const state = loadState();
+  const next = { ...state };
+  for (const c of DUMMY_COLLECTIONS) {
+    const dummyIds = new Set((SEED[c] || []).map((r) => r.id));
+    next[c] = (state[c] || []).filter((r) => !dummyIds.has(r.id));
+  }
+  write(next);
+  return next;
+}
+
 // Generic collection helpers ------------------------------------------------
 
 export function getAll(collection) {

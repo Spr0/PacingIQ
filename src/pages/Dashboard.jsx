@@ -54,7 +54,7 @@ function PCard({ icon, accent, eyebrow, title, count, linkTo, linkLabel, childre
 }
 
 export default function Dashboard() {
-  const { rollups, teachers, assessments, resetDemo } = useApp();
+  const { rollups, teachers, assessments, resetDemo, clearDummy } = useApp();
   const navigate = useNavigate();
 
   const total = rollups.length;
@@ -141,6 +141,9 @@ export default function Dashboard() {
         <div className="row" style={{ gap: 10 }}>
           <button className="btn btn--ghost btn--sm" onClick={resetDemo}>
             Reset demo data
+          </button>
+          <button className="btn btn--ghost btn--sm" onClick={clearDummy}>
+            Clear dummy data
           </button>
           <button className="btn" onClick={() => navigate('/report')}>
             <Icon name="sparkle" /> Intelligent view
