@@ -8,9 +8,12 @@
 // storage directly.
 // ---------------------------------------------------------------------------
 
-import { SEED } from './seed.js';
+import { SEED, DEFAULT_DATA } from './seed.js';
 
-const STORAGE_KEY = 'pacingiq_state_v1';
+// Bumped to v2 to invalidate any previously persisted state seeded with fake
+// demo records — every environment falls through to the empty DEFAULT_DATA
+// below on its next load, regardless of what an old browser had stored.
+const STORAGE_KEY = 'pacingiq_state_v2';
 
 // Collections managed by the store.
 const COLLECTIONS = [
@@ -42,11 +45,11 @@ function write(state) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-// Load state, seeding demo data on first run.
+// Load state, seeding default (non-demo) data on first run.
 export function loadState() {
   let state = read();
   if (!state) {
-    state = { ...emptyState(), ...SEED };
+    state = { ...emptyState(), ...DEFAULT_DATA };
     write(state);
   }
   // Make sure every known collection exists even if the stored shape is older.

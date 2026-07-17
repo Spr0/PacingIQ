@@ -294,3 +294,11 @@ export const SEED = {
   actionPlans,
   auditLog: [],
 };
+
+// Default data for a fresh install: no fake teachers/observations/records, just
+// the reusable action-plan templates a real coach would want on day one. The
+// full fake roster above (SEED) is still used by "Reset demo data" so the app
+// can still be re-demoed with realistic-looking data on request.
+export const DEFAULT_DATA = {
+  actionPlanTemplates,
+};
