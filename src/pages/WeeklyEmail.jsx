@@ -16,7 +16,6 @@ import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { isOverdue, recommendedAction, SEEN_WINDOW_DAYS } from '../lib/intelligence.js';
 import { formatDate, daysUntil } from '../lib/dates.js';
-import { ROLES } from '../lib/permissions.js';
 import { Icon } from '../components/icons.jsx';
 
 const NOT_VISITED_DAYS = 10; // spec: teachers not visited in 10+ days
@@ -47,8 +46,8 @@ function Section({ icon, title, count, empty, children }) {
 }
 
 export default function WeeklyEmail() {
-  const { rollups, teachers, assessments, interventions, db } = useApp();
-  const coach = ROLES.coach;
+  const { rollups, teachers, assessments, interventions, db, user } = useApp();
+  const coach = user;
   const [sentAt, setSentAt] = useState(null);
 
   const behind = useMemo(

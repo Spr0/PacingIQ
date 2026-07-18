@@ -1,144 +1,168 @@
 // ---------------------------------------------------------------------------
 // Data access layer for PacingIQ.
 //
-// This is the ONLY module that touches localStorage. It is intentionally thin
-// and collection-oriented so the demo can later be re-platformed onto a real
-// backend (Dataverse / MS Copilot / Supabase) by replacing the bodies of these
-// functions with API or table calls. Nothing else in the app reads or writes
-// storage directly.
+// This is the ONLY module that talks to the backend (Supabase/Postgres).
+// It keeps the exact same collection-oriented function signatures the app
+// always called (insert/update/remove/getAll/getById), so pages and
+// components didn't need to change when this moved off localStorage -- see
+// supabase/schema.sql for the table definitions and RLS policies this reads
+// and writes through.
 // ---------------------------------------------------------------------------
 
-import { SEED, DEFAULT_DATA } from './seed.js';
+import { supabase } from './supabaseClient.js';
 
-// Bumped to v2 to invalidate any previously persisted state seeded with fake
-// demo records — every environment falls through to the empty DEFAULT_DATA
-// below on its next load, regardless of what an old browser had stored.
-const STORAGE_KEY = 'pacingiq_state_v2';
+// App collection name -> Postgres table name.
+const TABLES = {
+  teachers: 'teachers',
+  observations: 'observations',
+  pacingEntries: 'pacing_entries',
+  assessments: 'assessments',
+  interventions: 'interventions',
+  actionPlanTemplates: 'action_plan_templates',
+  actionPlans: 'action_plans',
+  goals: 'goals',
+  auditLog: 'audit_log',
+};
 
-// Collections managed by the store.
-const COLLECTIONS = [
-  'teachers',
-  'observations',
-  'pacingEntries',
-  'assessments',
-  'interventions',
-  'actionPlanTemplates',
-  'actionPlans',
-  'goals',
-  'auditLog',
-];
+const COLLECTIONS = Object.keys(TABLES);
 
-function emptyState() {
-  return COLLECTIONS.reduce((acc, c) => ({ ...acc, [c]: [] }), {});
+function tableFor(collection) {
+  const table = TABLES[collection];
+  if (!table) throw new Error(`Unknown collection: ${collection}`);
+  return table;
 }
 
-function read() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
+// camelCase <-> snake_case, applied generically so every table/column is
+// covered without a per-field mapping list.
+function toSnakeKey(key) {
+  return key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+function toCamelKey(key) {
+  return key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+function rowToCamel(row) {
+  if (!row) return row;
+  const out = {};
+  for (const [k, v] of Object.entries(row)) out[toCamelKey(k)] = v;
+  return out;
+}
+function rowsToCamel(rows) {
+  return (rows || []).map(rowToCamel);
+}
+function patchToSnake(patch) {
+  const out = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue; // let column defaults / existing values stand
+    out[toSnakeKey(k)] = v;
   }
+  return out;
 }
 
-function write(state) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+function check(label, error) {
+  if (error) throw new Error(`${label}: ${error.message}`);
 }
 
-// Load state, seeding default (non-demo) data on first run.
-export function loadState() {
-  let state = read();
-  if (!state) {
-    state = { ...emptyState(), ...DEFAULT_DATA };
-    write(state);
-  }
-  // Make sure every known collection exists even if the stored shape is older.
-  let changed = false;
-  for (const c of COLLECTIONS) {
-    if (!Array.isArray(state[c])) {
-      state[c] = [];
-      changed = true;
-    }
-  }
-  if (changed) write(state);
-  return state;
+// ---------------------------------------------------------------------------
+// Auth: profile = the signed-in user's row in `profiles` (name + role).
+// A user with no profile yet, or role 'pending', has no real access -- see
+// AuthContext.jsx, which is what actually gates the app on this.
+// ---------------------------------------------------------------------------
+
+export async function getSession() {
+  const { data, error } = await supabase.auth.getSession();
+  check('getSession', error);
+  return data.session;
 }
 
-export function resetState() {
-  const state = { ...emptyState(), ...SEED };
-  write(state);
-  return state;
+export function onAuthStateChange(callback) {
+  const { data } = supabase.auth.onAuthStateChange((_event, session) => callback(session));
+  return () => data.subscription.unsubscribe();
 }
 
-// Collections that hold demo-only records tied to a fake teacher. Templates
-// and the audit log are real, reusable content and are never touched here.
-const DUMMY_COLLECTIONS = COLLECTIONS.filter(
-  (c) => c !== 'actionPlanTemplates' && c !== 'auditLog'
-);
-
-// Removes exactly the records that shipped in SEED (matched by id), leaving
-// everything else — including real records a coach has already entered —
-// untouched. Safe to run at any point, including after real data exists,
-// as long as nobody edited a seeded record in place instead of creating a
-// fresh one (which would keep the original t_rivera-style id).
-export function clearDummyData() {
-  const state = loadState();
-  const next = { ...state };
-  for (const c of DUMMY_COLLECTIONS) {
-    const dummyIds = new Set((SEED[c] || []).map((r) => r.id));
-    next[c] = (state[c] || []).filter((r) => !dummyIds.has(r.id));
-  }
-  write(next);
-  return next;
-}
-
-// Generic collection helpers ------------------------------------------------
-
-export function getAll(collection) {
-  const state = loadState();
-  return state[collection] || [];
-}
-
-export function getById(collection, id) {
-  return getAll(collection).find((r) => r.id === id) || null;
-}
-
-export function insert(collection, record) {
-  const state = loadState();
-  const row = { id: record.id || genId(collection), ...record };
-  state[collection] = [...(state[collection] || []), row];
-  write(state);
-  return row;
-}
-
-export function update(collection, id, patch) {
-  const state = loadState();
-  let updated = null;
-  state[collection] = (state[collection] || []).map((r) => {
-    if (r.id !== id) return r;
-    updated = { ...r, ...patch };
-    return updated;
+export async function signInWithEmail(email) {
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin },
   });
-  write(state);
-  return updated;
+  check('signInWithEmail', error);
 }
 
-export function remove(collection, id) {
-  const state = loadState();
-  state[collection] = (state[collection] || []).filter((r) => r.id !== id);
-  write(state);
+export async function signOut() {
+  const { error } = await supabase.auth.signOut();
+  check('signOut', error);
 }
 
-export function genId(prefix = 'rec') {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+export async function getMyProfile() {
+  const { data, error } = await supabase.from('profiles').select('*').maybeSingle();
+  check('getMyProfile', error);
+  return rowToCamel(data);
 }
 
-// Audit log -----------------------------------------------------------------
-// Mirrors the spec's audit requirement. In the re-platformed version this would
-// be an append-only table; here it is just another collection.
+// ---------------------------------------------------------------------------
+// Generic collection helpers -- same signatures every page already calls.
+// ---------------------------------------------------------------------------
 
-export function logAudit(actor, action, detail = '') {
+export async function getAll(collection) {
+  const { data, error } = await supabase.from(tableFor(collection)).select('*');
+  check(`getAll(${collection})`, error);
+  return rowsToCamel(data);
+}
+
+export async function getById(collection, id) {
+  const { data, error } = await supabase
+    .from(tableFor(collection))
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  check(`getById(${collection})`, error);
+  return rowToCamel(data);
+}
+
+export async function insert(collection, record) {
+  // A caller-provided id is passed through as-is (must be a valid uuid --
+  // Observations.jsx pre-generates one via crypto.randomUUID() so a file
+  // attachment has a stable observationId before the record is saved).
+  // Otherwise the column default (gen_random_uuid()) fills it in.
+  const { data, error } = await supabase
+    .from(tableFor(collection))
+    .insert(patchToSnake(record))
+    .select()
+    .single();
+  check(`insert(${collection})`, error);
+  return rowToCamel(data);
+}
+
+export async function update(collection, id, patch) {
+  const { data, error } = await supabase
+    .from(tableFor(collection))
+    .update(patchToSnake(patch))
+    .eq('id', id)
+    .select()
+    .single();
+  check(`update(${collection})`, error);
+  return rowToCamel(data);
+}
+
+export async function remove(collection, id) {
+  const { error } = await supabase.from(tableFor(collection)).delete().eq('id', id);
+  check(`remove(${collection})`, error);
+}
+
+// Fetches every collection in parallel. Replaces the old synchronous
+// "one localStorage blob" read; callers now await this once on load and
+// after any mutation that needs a full refresh (most mutations instead
+// patch local React state directly from the returned row -- see
+// AppContext.jsx).
+export async function loadAll() {
+  const entries = await Promise.all(COLLECTIONS.map(async (c) => [c, await getAll(c)]));
+  return Object.fromEntries(entries);
+}
+
+// ---------------------------------------------------------------------------
+// Audit log -- append-only from the app's perspective.
+// ---------------------------------------------------------------------------
+
+export async function logAudit(actor, action, detail = '') {
   return insert('auditLog', {
     timestamp: new Date().toISOString(),
     actor: actor ? `${actor.name} (${actor.label})` : 'system',

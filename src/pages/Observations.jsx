@@ -12,7 +12,6 @@ import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
 import { formatDate, isoDate } from '../lib/dates.js';
-import { genId } from '../data/store.js';
 import {
   MAX_ATTACHMENT_BYTES,
   ALLOWED_ATTACHMENT_TYPES,
@@ -122,7 +121,7 @@ function buildTeacherEmail(obs, rollup, teacher, coachName) {
 // storage before the record itself has ever been persisted.
 function emptyForm() {
   return {
-    id: genId('obs'),
+    id: crypto.randomUUID(),
     teacherId: '',
     date: isoDate(),
     time: '',

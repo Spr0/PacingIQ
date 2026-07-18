@@ -5,19 +5,19 @@ tool that helps instructional coaches, principals, and assistant principals
 monitor teacher pacing, document coaching, track interventions, and keep
 assessment readiness on track.
 
-This repository is a **demo prototype**. It runs entirely in the browser on
-`localStorage` with a mock role switcher, and is intended to be demoed and then
-re-platformed onto a Microsoft Copilot / Power Platform instance inside a school
-district (which provides real Workspace SSO, multi-tenancy, encryption, and
-audit storage). The data layer is deliberately isolated so that re-platform is a
-contained change.
+Data is real and persistent (Supabase/Postgres, with real magic-link sign-in),
+currently running as a **trial** with one school. The path to a full district
+rollout is Microsoft Copilot / Power Platform (Workspace SSO, multi-tenancy,
+Dataverse) — the data layer is deliberately isolated in `src/data/store.js` so
+that move stays a contained change.
 
 ## Stack
 
 - React 18 + Vite
 - React Router
-- `localStorage` for all persistent state (one swappable module)
-- Netlify for hosting (static SPA)
+- Supabase (Postgres + Auth + Row Level Security) for all persistent state and
+  sign-in — see `supabase/schema.sql` for the schema and RLS policies
+- Netlify for hosting (static SPA + serverless functions)
 
 ## Running locally
 
@@ -29,6 +29,15 @@ npm run dev      # http://localhost:5173
 npm run build    # production build to dist/
 npm run preview  # preview the production build
 ```
+
+Requires a `.env.local` with a Supabase project's URL and anon key:
+
+```
+VITE_SUPABASE_URL=https://xxxxx.supabase.co
+VITE_SUPABASE_ANON_KEY=xxxxx
+```
+
+See "Supabase setup" below to create the project and run the schema.
 
 ## What is in this slice
 
@@ -48,7 +57,7 @@ The first deployable slice covers the daily-driver coaching loop:
   meeting, follow-up observation, and leadership review, with a teacher staying
   Red until all requirements are met.
 - **Coaching Impact Report** — the primary single-page school-health view.
-- **Audit Log** — activity and change history, including mock login (role switch).
+- **Audit Log** — activity and change history, including sign-ins.
 - **Action Plans** — reusable common templates plus editable teacher-specific
   plans, created from a template or from scratch.
 - **Goals** — a single target per teacher (owner, target date, status) that
@@ -66,13 +75,36 @@ The first deployable slice covers the daily-driver coaching loop:
 - **Multi-subject pacing** — elementary/multi-subject teachers get independent
   pacing status per subject everywhere pacing is shown.
 
-### Roles (mock auth)
+### Roles and sign-in
 
-Switch roles from the top bar. There is no real login in the demo.
+Sign-in is a magic link (email only, no password) via Supabase Auth. A brand
+new sign-in gets the `pending` role and sees a "waiting on access" screen —
+nobody gets real access just by showing up. A coach or admin has to open the
+Supabase dashboard (Table Editor → `profiles`) and set that person's `role`
+column by hand; there's no in-app way to grant a role, on purpose.
 
 - **Instructional Coach** — full read/write access.
 - **Principal / Assistant Principal** — view everything and run reports;
   cannot edit coaching notes; can record the leadership review on interventions.
+
+## Supabase setup
+
+1. [supabase.com/dashboard](https://supabase.com/dashboard) → New project.
+2. Project Settings → API → copy the Project URL and the `anon`/`public` key
+   into `.env.local` (local dev) and the Netlify site's environment variables
+   (production — Vite bakes these in at build time, so a Netlify env var
+   change needs a redeploy to take effect). Never use the `service_role` key
+   or the database password client-side.
+3. SQL Editor → New query → paste the entire contents of
+   `supabase/schema.sql` → Run. This creates every table, the RLS policies,
+   the `profiles`-on-signup trigger, and seeds the four reusable action-plan
+   templates.
+4. Authentication → Providers → confirm Email is enabled (it is by default;
+   that's all magic-link sign-in needs).
+5. Sign in once through the app with the first real coach's email, then in
+   Table Editor → `profiles`, change that row's `role` from `pending` to
+   `coach`. That person can't do this for themselves — someone has to do it
+   from the Supabase dashboard the first time.
 
 ## AI Coaching Assistant
 
@@ -140,15 +172,28 @@ on real OAuth credentials this environment doesn't have:
   their own web links and `.ics` (see Goals above); automatic two-way sync —
   a goal edit or completion updating an event already on the coach's calendar
   — needs the same OAuth client.
-- **Dataverse re-platform** — attachments already use Netlify Blobs instead of
-  `localStorage`, so there is no demo size ceiling. Moving all persistence
-  (records + blobs) onto district Dataverse / blob storage is the production
-  re-platform step, isolated to `src/data/store.js` and the attachment functions.
+- **Dataverse re-platform** — structured data is on Supabase/Postgres and
+  attachments are on Netlify Blobs, both real and persistent; there is no
+  demo size ceiling anymore. Moving all persistence onto district Dataverse
+  / blob storage for a full rollout (vs. the current trial) is isolated to
+  `src/data/store.js` and the attachment functions.
+- **District SSO** — sign-in is Supabase magic-link today, workable for a
+  trial. Tying it to the district's actual Google Workspace or Microsoft 365
+  accounts needs an OAuth app registered with district IT.
 
 ## Architecture notes
 
-- `src/data/store.js` is the **only** module that touches `localStorage`. Swap
-  its function bodies for Dataverse / API calls to re-platform.
+- `src/data/store.js` is the **only** module that touches the backend
+  (Supabase). It keeps the same `insert`/`update`/`remove`/`getAll` shape
+  every page already called back when this was `localStorage`, so swapping
+  it for Dataverse / API calls later stays a contained change.
+- `supabase/schema.sql` is the source of truth for the database: one table
+  per `store.js` collection, plus `profiles` (auth user → name/role). Nested
+  arrays that used to be embedded JS objects (action items, agreed actions,
+  plan steps) are `jsonb` columns rather than their own tables, to keep the
+  Postgres move contained.
 - `src/lib/intelligence.js` holds all derived logic (pacing status, risk score,
   rollups, recommendations) and is UI-independent.
-- `src/lib/permissions.js` centralizes the role/permission model.
+- `src/lib/permissions.js` centralizes the role/permission model; RLS
+  policies in `supabase/schema.sql` enforce the same rules at the database
+  level, not just in the UI.

@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useApp } from '../state/AppContext.jsx';
-import { ROLE_ORDER, ROLES } from '../lib/permissions.js';
+import { useAuth } from '../state/AuthContext.jsx';
 import { Icon, Brandmark } from './icons.jsx';
 
 const NAV = [
@@ -32,7 +32,8 @@ function dashboardSubtitle() {
 }
 
 export default function Layout() {
-  const { user, roleKey, setRole, interventions } = useApp();
+  const { user, interventions } = useApp();
+  const { signOut } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [q, setQ] = useState('');
@@ -108,17 +109,11 @@ export default function Layout() {
               />
             </label>
             <div className="roleswitch">
-              <div className="roleswitch__pills" role="tablist" aria-label="Switch role">
-                {ROLE_ORDER.map((key) => (
-                  <button
-                    key={key}
-                    className={roleKey === key ? 'active' : ''}
-                    onClick={() => setRole(key)}
-                    title={ROLES[key].name}
-                  >
-                    {ROLES[key].label}
-                  </button>
-                ))}
+              <div className="roleswitch__pills">
+                <button className="active" title={user.name} disabled>
+                  {user.label}
+                </button>
+                <button onClick={signOut}>Sign out</button>
               </div>
             </div>
           </div>

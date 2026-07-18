@@ -1,33 +1,50 @@
 // ---------------------------------------------------------------------------
-// Mock role + permission model.
+// Role + permission model.
 //
-// In the demo there is no real authentication. A role switcher selects the
-// current user. When this is re-platformed onto MS Copilot / Workspace SSO the
-// `currentRole` comes from the identity provider instead, but the permission
-// checks below stay the same.
+// The signed-in user's role comes from the `profiles` table (see
+// supabase/schema.sql), set by a coach/admin editing that table directly --
+// there's no in-app way to grant yourself a role. `pending` (the default for
+// a brand new sign-in) is handled upstream in App.jsx, which shows a
+// "waiting on access" screen instead of ever rendering a page for it; can()
+// still treats it as no-access here too, so nothing relies solely on that
+// outer gate.
 // ---------------------------------------------------------------------------
 
-export const ROLES = {
-  coach: { key: 'coach', label: 'Instructional Coach', name: 'Stacy Eilander', initials: 'SE' },
-  principal: { key: 'principal', label: 'Principal', name: 'Principal Adams', initials: 'PA' },
-  ap: { key: 'ap', label: 'Assistant Principal', name: 'AP Brooks', initials: 'AB' },
+export const ROLE_LABELS = {
+  coach: 'Instructional Coach',
+  principal: 'Principal',
+  ap: 'Assistant Principal',
+  pending: 'Pending Approval',
 };
 
 export const ROLE_ORDER = ['coach', 'principal', 'ap'];
 
-// Capability checks. Keep these centralized so the UI and any future backend
-// agree on who can do what.
+const REAL_ROLES = ['coach', 'principal', 'ap'];
+
+// First letters of up to the first two words of a name, e.g. "Stacy
+// Eilander" -> "SE". Falls back to "?" for an empty/missing name.
+export function initialsOf(name) {
+  const initials = (name || '')
+    .trim()
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
+  return initials || '?';
+}
+
+// Capability checks. Keep these centralized so the UI and the RLS policies
+// in supabase/schema.sql agree on who can do what.
 //
 //   write            create / edit records and coaching notes  -> coach only
 //   leadershipReview record a leadership review on interventions -> principal / AP
-//   view             read everything                            -> all roles
-//   reset            reset the demo data                        -> all (demo only)
+//   view             read everything                            -> coach / principal / AP
 export function can(roleKey, action) {
   switch (action) {
     case 'view':
     case 'runReports':
-    case 'reset':
-      return true;
+      return REAL_ROLES.includes(roleKey);
     case 'write':
       return roleKey === 'coach';
     case 'leadershipReview':
@@ -41,6 +58,5 @@ export function can(roleKey, action) {
 // edit another user's notes (per the spec).
 export function canEditNote(roleKey, record) {
   if (roleKey !== 'coach') return false;
-  // In the demo every note is authored by the coach role.
   return !record || record.createdBy === 'coach' || record.createdBy == null;
 }
