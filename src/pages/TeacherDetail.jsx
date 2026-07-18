@@ -16,6 +16,7 @@ import {
   RiskBadge,
   Badge,
   Empty,
+  Field,
   Modal,
   InfoTip,
   RISK_SCORE_TOOLTIP,
@@ -61,10 +62,45 @@ export default function TeacherDetail() {
   const [aiOpen, setAiOpen] = useState(false);
   const [aiInitialKind, setAiInitialKind] = useState('summary');
   const [lessonReaderOpen, setLessonReaderOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState(null);
 
   function openAi(kind) {
     setAiInitialKind(kind);
     setAiOpen(true);
+  }
+
+  function openEditTeacher() {
+    setEditForm({
+      name: rollup.teacher.name || '',
+      subject: rollup.teacher.subject || '',
+      subjects: (rollup.teacher.subjects || []).join(', '),
+      gradeLevel: rollup.teacher.gradeLevel || '',
+      assignedAdmin: rollup.teacher.assignedAdmin || '',
+    });
+    setEditOpen(true);
+  }
+
+  function saveTeacherEdit() {
+    const name = editForm.name.trim();
+    if (!name) return;
+    const subjects = editForm.subjects
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    db.update(
+      'teachers',
+      rollup.teacher.id,
+      {
+        name,
+        subject: editForm.subject.trim() || (subjects.length ? subjects.join(', ') : ''),
+        gradeLevel: editForm.gradeLevel.trim(),
+        assignedAdmin: editForm.assignedAdmin.trim(),
+        subjects: subjects.length > 1 ? subjects : undefined,
+      },
+      'updated teacher'
+    );
+    setEditOpen(false);
   }
 
   const myObservations = useMemo(
@@ -129,7 +165,14 @@ export default function TeacherDetail() {
         </Link>
         <div className="row row--between row--wrap" style={{ gap: 12 }}>
           <div>
-            <h1 style={{ marginBottom: 4 }}>{teacher.name}</h1>
+            <div className="row" style={{ gap: 8, alignItems: 'baseline' }}>
+              <h1 style={{ marginBottom: 4 }}>{teacher.name}</h1>
+              {writable && (
+                <button className="btn btn--ghost btn--sm" onClick={openEditTeacher}>
+                  Edit
+                </button>
+              )}
+            </div>
             <p className="muted">
               {[teacher.subject, teacher.gradeLevel ? `Grade ${teacher.gradeLevel}` : null, teacher.assignedAdmin]
                 .filter(Boolean)
@@ -240,6 +283,73 @@ export default function TeacherDetail() {
 
       {lessonReaderOpen && (
         <LessonPlanReader teacher={teacher} onClose={() => setLessonReaderOpen(false)} />
+      )}
+
+      {editOpen && editForm && (
+        <Modal
+          title="Edit Teacher"
+          onClose={() => setEditOpen(false)}
+          maxWidth={480}
+          footer={
+            <>
+              <button className="btn btn--ghost" onClick={() => setEditOpen(false)}>
+                Cancel
+              </button>
+              <button className="btn btn--primary" onClick={saveTeacherEdit} disabled={!editForm.name.trim()}>
+                Save
+              </button>
+            </>
+          }
+        >
+          <div className="stack">
+            <Field label="Name">
+              <input
+                className="input"
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                placeholder="Teacher name"
+                autoFocus
+              />
+            </Field>
+            <Field label="Subject">
+              <input
+                className="input"
+                value={editForm.subject}
+                onChange={(e) => setEditForm({ ...editForm, subject: e.target.value })}
+                placeholder="e.g. Algebra I"
+              />
+            </Field>
+            <Field
+              label="Subjects taught"
+              hint="comma separated, for elementary/multi-subject teachers only"
+            >
+              <input
+                className="input"
+                value={editForm.subjects}
+                onChange={(e) => setEditForm({ ...editForm, subjects: e.target.value })}
+                placeholder="e.g. ELA, Math"
+              />
+            </Field>
+            <div className="form-row">
+              <Field label="Grade level">
+                <input
+                  className="input"
+                  value={editForm.gradeLevel}
+                  onChange={(e) => setEditForm({ ...editForm, gradeLevel: e.target.value })}
+                  placeholder="e.g. 9"
+                />
+              </Field>
+              <Field label="Assigned admin">
+                <input
+                  className="input"
+                  value={editForm.assignedAdmin}
+                  onChange={(e) => setEditForm({ ...editForm, assignedAdmin: e.target.value })}
+                  placeholder="e.g. AP Brooks"
+                />
+              </Field>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
