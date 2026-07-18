@@ -265,8 +265,31 @@ create policy "audit_select" on public.audit_log for select using (public.can_vi
 create policy "audit_insert" on public.audit_log for insert with check (public.can_view());
 
 -- ---------------------------------------------------------------------------
+-- Explicit grants, so access doesn't depend on the "Automatically expose
+-- new tables" project setting (Supabase's own advice is to turn that off).
+-- `anon` (unauthenticated) gets nothing -- a magic-link click is what
+-- promotes a session to `authenticated`. RLS policies above are still the
+-- real gate: a table with RLS enabled and no policy for a given operation
+-- denies that operation regardless of these grants, which is why profiles
+-- is safe to include here despite having no insert/update/delete policy.
+-- ---------------------------------------------------------------------------
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on
+  public.profiles,
+  public.teachers,
+  public.pacing_entries,
+  public.observations,
+  public.assessments,
+  public.interventions,
+  public.action_plan_templates,
+  public.action_plans,
+  public.goals,
+  public.audit_log
+  to authenticated;
+
+-- ---------------------------------------------------------------------------
 -- Seed the reusable action-plan templates (the only "default data" a fresh
--- install should have -- see src/data/seed.js DEFAULT_DATA for the source).
+-- install should have).
 -- ---------------------------------------------------------------------------
 insert into public.action_plan_templates (title, category, description, steps) values
   (
