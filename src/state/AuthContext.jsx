@@ -2,6 +2,14 @@
 // Auth state: the Supabase session and the signed-in user's profile
 // (name + role from the `profiles` table). Wraps AppProvider, which only
 // ever renders once there's a session and an approved (non-pending) role.
+//
+// TEMPORARY: auto-signs in anonymously when there's no session, so nobody
+// has to get a magic-link email at all -- district network/email filtering
+// was blocking that path for at least one user. This trades away per-person
+// login entirely (see the AskUserQuestion this was chosen over in the
+// conversation this shipped from). To restore real sign-in: delete the
+// signInAnonymously() call+effect below, and turn "Allow anonymous
+// sign-ins" back off in Supabase.
 // ---------------------------------------------------------------------------
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
@@ -28,6 +36,16 @@ export function AuthProvider({ children }) {
 
     store.getSession().then(async (s) => {
       if (cancelled) return;
+      if (!s) {
+        // No friction: sign in anonymously instead of showing SignIn. If
+        // the Supabase provider isn't enabled yet this just fails quietly
+        // and SignIn renders as a fallback -- nothing breaks either way.
+        try {
+          s = await store.signInAnonymously();
+        } catch {
+          // fall through to SignIn below
+        }
+      }
       setSession(s);
       if (s) await loadProfile();
       setLoading(false);

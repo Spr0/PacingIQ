@@ -29,15 +29,23 @@ create table public.profiles (
   created_at timestamptz not null default now()
 );
 
--- Auto-create a pending profile row whenever someone signs in for the first time.
+-- Auto-create a profile row whenever someone signs in for the first time.
+-- Anonymous sign-ins (the temporary no-email-friction path -- see
+-- src/state/AuthContext.jsx) get 'coach' immediately, since nobody's there
+-- to promote them by hand. Real email sign-ins still default to 'pending'.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
 security definer set search_path = public
 as $$
 begin
-  insert into public.profiles (id, email, name)
-  values (new.id, new.email, coalesce(new.raw_user_meta_data ->> 'name', new.email));
+  insert into public.profiles (id, email, name, role)
+  values (
+    new.id,
+    coalesce(new.email, 'anonymous'),
+    coalesce(new.raw_user_meta_data ->> 'name', new.email, 'Guest'),
+    case when new.is_anonymous then 'coach' else 'pending' end
+  );
   return new;
 end;
 $$;

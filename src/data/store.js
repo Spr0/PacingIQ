@@ -87,6 +87,19 @@ export async function signInWithEmail(email) {
   check('signInWithEmail', error);
 }
 
+// Temporary no-friction access path: signs in as an anonymous Supabase user
+// with no email step at all. Requires "Allow anonymous sign-ins" enabled in
+// Supabase (Authentication > Sign In / Providers) and the handle_new_user
+// trigger's is_anonymous branch (see supabase/schema.sql) to grant it a
+// working role automatically -- otherwise it lands on the same pending
+// screen a real sign-in would. To restore real access control later: turn
+// the provider back off and stop calling this from AuthContext.
+export async function signInAnonymously() {
+  const { data, error } = await supabase.auth.signInAnonymously();
+  check('signInAnonymously', error);
+  return data.session;
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   check('signOut', error);
