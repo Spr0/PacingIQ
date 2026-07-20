@@ -22,9 +22,16 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const loadProfile = useCallback(async () => {
+  // Self-heals a stuck-pending (or unreadable-because-pending) anonymous
+  // profile instead of leaving it for a coach to fix by hand -- covers a
+  // profile created before the auto-grant trigger existed, and any other
+  // gap between sign-in and the row being 'coach'.
+  const loadProfile = useCallback(async (currentSession) => {
     try {
-      const p = await store.getMyProfile();
+      let p = await store.getMyProfile();
+      if (currentSession?.user?.is_anonymous && (!p || p.role === 'pending')) {
+        p = (await store.selfPromoteIfAnonymous()) || (await store.getMyProfile());
+      }
       setProfile(p);
     } catch {
       setProfile(null);
@@ -47,14 +54,14 @@ export function AuthProvider({ children }) {
         }
       }
       setSession(s);
-      if (s) await loadProfile();
+      if (s) await loadProfile(s);
       setLoading(false);
     });
 
     const unsubscribe = store.onAuthStateChange(async (s) => {
       if (cancelled) return;
       setSession(s);
-      if (s) await loadProfile();
+      if (s) await loadProfile(s);
       else setProfile(null);
     });
 
@@ -66,8 +73,9 @@ export function AuthProvider({ children }) {
 
   const signIn = useCallback((email) => store.signInWithEmail(email), []);
   const signOut = useCallback(() => store.signOut(), []);
+  const refreshProfile = useCallback(() => loadProfile(session), [loadProfile, session]);
 
-  const value = { session, profile, loading, signIn, signOut, refreshProfile: loadProfile };
+  const value = { session, profile, loading, signIn, signOut, refreshProfile };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

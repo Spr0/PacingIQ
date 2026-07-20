@@ -100,6 +100,25 @@ export async function signInAnonymously() {
   return data.session;
 }
 
+// Self-heals a stuck-pending anonymous profile instead of waiting on a
+// coach to fix it by hand -- covers both a profile created before the
+// handle_new_user trigger granted 'coach' automatically, and any other gap
+// between them. No-op (and harmless) if the caller isn't anonymous or is
+// already past pending; the anon_self_promote RLS policy is what actually
+// restricts this to a user's own row.
+export async function selfPromoteIfAnonymous() {
+  const { data: authData } = await supabase.auth.getUser();
+  if (!authData?.user?.is_anonymous) return null;
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ role: 'coach' })
+    .eq('id', authData.user.id)
+    .select()
+    .maybeSingle();
+  check('selfPromoteIfAnonymous', error);
+  return rowToCamel(data);
+}
+
 export async function signOut() {
   const { error } = await supabase.auth.signOut();
   check('signOut', error);

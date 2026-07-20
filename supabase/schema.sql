@@ -74,8 +74,21 @@ returns boolean language sql stable as $$ select public.current_role() in ('prin
 
 alter table public.profiles enable row level security;
 create policy "profiles_select_all" on public.profiles for select using (public.can_view());
--- No update/insert/delete policy for normal users: role changes happen only
--- via the Supabase dashboard (as the table owner, bypassing RLS).
+-- A pending user fails can_view(), so without this they can't even see
+-- their own row to know they're pending -- profiles_select_all alone makes
+-- that state undiagnosable from the client. RLS ORs select policies
+-- together, so this just adds "or it's your own row" on top.
+create policy "profiles_select_own" on public.profiles for select using (auth.uid() = id);
+-- Anonymous sessions (the temporary no-friction path) can self-promote
+-- their own row to 'coach', so a profile that predates the
+-- handle_new_user trigger's auto-grant -- or any other gap -- doesn't
+-- stay stuck pending until a coach manually fixes it in the dashboard.
+-- Real (non-anonymous) users get no update/insert/delete policy: role
+-- changes for them still happen only via the Supabase dashboard.
+create policy "profiles_anon_self_promote" on public.profiles
+  for update
+  using (auth.uid() = id and (auth.jwt() ->> 'is_anonymous')::boolean is true)
+  with check (auth.uid() = id and (auth.jwt() ->> 'is_anonymous')::boolean is true and role = 'coach');
 
 -- ---------------------------------------------------------------------------
 -- teachers
