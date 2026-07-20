@@ -125,7 +125,20 @@ export async function signOut() {
 }
 
 export async function getMyProfile() {
-  const { data, error } = await supabase.from('profiles').select('*').maybeSingle();
+  // Must filter by id explicitly rather than relying on RLS to narrow this
+  // to "just my row": profiles_select_all makes every profile visible once
+  // role is approved (coach/principal/ap need to see the roster of who has
+  // access), so an unfiltered select("*") returns every row post-approval
+  // and .maybeSingle() throws (PGRST116, "Cannot coerce ... to a single
+  // object") the moment more than one profile exists.
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  check('getMyProfile (getUser)', authError);
+  if (!authData?.user) return null;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', authData.user.id)
+    .maybeSingle();
   check('getMyProfile', error);
   return rowToCamel(data);
 }
