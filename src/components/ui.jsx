@@ -79,6 +79,32 @@ export function Field({ label, hint, children }) {
   );
 }
 
+// Clickable, keyboard-operable sortable column header. Shows the active
+// direction, or a neutral arrow when another column is the sort key.
+export function SortHeader({ label, sortKey, sort, onSort }) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      className="th-sort"
+      tabIndex={0}
+      role="columnheader"
+      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      onClick={() => onSort(sortKey)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSort(sortKey);
+        }
+      }}
+    >
+      {label}
+      <span className={`th-sort__arrow${active ? ' is-active' : ''}`} aria-hidden="true">
+        {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+      </span>
+    </th>
+  );
+}
+
 export function Modal({ title, onClose, children, footer, maxWidth }) {
   return (
     <div className="modal-overlay" onMouseDown={onClose}>

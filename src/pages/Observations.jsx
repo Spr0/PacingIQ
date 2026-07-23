@@ -19,7 +19,7 @@ import {
   deleteAttachment,
   attachmentUrl,
 } from '../lib/attachments.js';
-import { Card, Badge, Empty, Field, Modal } from '../components/ui.jsx';
+import { Card, Badge, Empty, Field, Modal, SortHeader } from '../components/ui.jsx';
 
 const ENGAGEMENT_LEVELS = ['Low', 'Medium', 'High'];
 const ACTION_STATUSES = ['Open', 'In Progress', 'Complete'];
@@ -872,32 +872,6 @@ export default function Observations() {
         </Modal>
       )}
     </div>
-  );
-}
-
-// Clickable, keyboard-operable sortable column header. Shows the active
-// direction, or a neutral arrow when another column is the sort key.
-function SortHeader({ label, sortKey, sort, onSort }) {
-  const active = sort.key === sortKey;
-  return (
-    <th
-      className="th-sort"
-      tabIndex={0}
-      role="columnheader"
-      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-      onClick={() => onSort(sortKey)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSort(sortKey);
-        }
-      }}
-    >
-      {label}
-      <span className={`th-sort__arrow${active ? ' is-active' : ''}`} aria-hidden="true">
-        {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
-      </span>
-    </th>
   );
 }
 

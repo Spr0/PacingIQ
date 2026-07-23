@@ -8,7 +8,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
-import { pacingStatus } from '../lib/intelligence.js';
+import { pacingStatus, gradeRank } from '../lib/intelligence.js';
 import { formatDate } from '../lib/dates.js';
 import {
   Card,
@@ -19,6 +19,7 @@ import {
   Field,
   Modal,
   InfoTip,
+  SortHeader,
   RISK_SCORE_TOOLTIP,
   PACING_STATUS_TOOLTIP,
 } from '../components/ui.jsx';
@@ -29,6 +30,10 @@ const STATUS_FILTERS = [
   { value: 'red', label: 'Red risk' },
   { value: 'unseen', label: 'Not seen 14d' },
 ];
+
+// The direction a column starts in the first time it is clicked: name and
+// subject A to Z, grade lowest first.
+const DEFAULT_SORT_DIR = { name: 'asc', subject: 'asc', gradeLevel: 'asc' };
 
 const EMPTY_FORM = { name: '', subject: '', subjects: '', gradeLevel: '', assignedAdmin: '' };
 
@@ -41,6 +46,11 @@ export default function Teachers() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
+
+  function toggleSort(key) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: DEFAULT_SORT_DIR[key] }));
+  }
 
   // Keep the field in sync when the header search (or a shared URL) sets ?q=.
   useEffect(() => {
@@ -74,6 +84,30 @@ export default function Teachers() {
       return true;
     });
   }, [rollups, query, statusFilter]);
+
+  const sorted = useMemo(() => {
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    const compare = (a, b) => {
+      const ta = a.teacher;
+      const tb = b.teacher;
+      if (sort.key === 'gradeLevel') {
+        const ar = gradeRank(ta.gradeLevel);
+        const br = gradeRank(tb.gradeLevel);
+        if (ar == null && br == null) return 0;
+        if (ar == null) return 1;
+        if (br == null) return -1;
+        return (ar - br) * dir;
+      }
+      // name and subject: alphabetical, blanks always sort last.
+      const av = (sort.key === 'name' ? ta.name : ta.subject) || '';
+      const bv = (sort.key === 'name' ? tb.name : tb.subject) || '';
+      if (!av && !bv) return 0;
+      if (!av) return 1;
+      if (!bv) return -1;
+      return av.localeCompare(bv) * dir;
+    };
+    return filtered.slice().sort(compare);
+  }, [filtered, sort]);
 
   function openModal() {
     setForm(EMPTY_FORM);
@@ -131,8 +165,8 @@ export default function Teachers() {
         )}
       </div>
 
-      <Card title="Teachers" count={filtered.length} flush>
-        {filtered.length === 0 ? (
+      <Card title="Teachers" count={sorted.length} flush>
+        {sorted.length === 0 ? (
           <div style={{ padding: 24 }}>
             <Empty icon="🔍">No teachers match the current filters.</Empty>
           </div>
@@ -140,9 +174,9 @@ export default function Teachers() {
           <table className="table">
             <thead>
               <tr>
-                <th>Teacher</th>
-                <th>Subject</th>
-                <th>Grade</th>
+                <SortHeader label="Teacher" sortKey="name" sort={sort} onSort={toggleSort} />
+                <SortHeader label="Subject" sortKey="subject" sort={sort} onSort={toggleSort} />
+                <SortHeader label="Grade" sortKey="gradeLevel" sort={sort} onSort={toggleSort} />
                 <th>Admin</th>
                 <th>
                   Pacing
@@ -157,7 +191,7 @@ export default function Teachers() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => {
+              {sorted.map((r) => {
                 const t = r.teacher;
                 const overdue = r.overdueActions.length > 0;
                 const pacingLabel =

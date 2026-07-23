@@ -62,6 +62,22 @@ export function gradeLabel(gradeLevel) {
   return `${n}${suffix} Grade`;
 }
 
+// Numeric sort key for a grade level, so columns order Kindergarten, 1, 2, ...
+// instead of the lexicographic order a plain string sort would produce (and
+// instead of alphabetizing "Kinder..." after every numbered grade). Grade
+// level is free text ("6th Grade & 7th Grade", "Kinder - 8th Grades", "Grade
+// 6, 7, 8th Grade"), so this ranks by the first grade mentioned rather than
+// requiring the whole field to be a single clean value. Text with no
+// Kinder/number in it at all (e.g. "ALL") has no reliable order, so it's
+// treated like a blank and sorts last.
+export function gradeRank(gradeLevel) {
+  if (gradeLevel == null || gradeLevel === '') return null;
+  const g = String(gradeLevel).trim();
+  if (/^kinder/i.test(g) || /^k([^a-z]|$)/i.test(g)) return 0;
+  const match = g.match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
 // Most recent observation for a teacher (by date).
 export function latestObservation(teacherId, observations) {
   return observations
