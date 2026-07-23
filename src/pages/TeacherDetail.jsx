@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { pacingStatus, recommendedAction, isOverdue } from '../lib/intelligence.js';
-import { formatDate, daysUntil } from '../lib/dates.js';
+import { formatDate, daysUntil, isoDate } from '../lib/dates.js';
 import { can } from '../lib/permissions.js';
 import {
   Card,
@@ -283,7 +283,9 @@ export default function TeacherDetail() {
           writable={writable}
         />
       )}
-      {tab === 'Coaching Notes' && <CoachingNotesTab observations={myObservations} />}
+      {tab === 'Coaching Notes' && (
+        <CoachingNotesTab observations={myObservations} teacherId={id} db={db} writable={writable} />
+      )}
 
       {aiOpen && (
         <CoachAssistant
@@ -838,7 +840,22 @@ function InterventionsTab({ interventions }) {
 // ---------------------------------------------------------------------------
 // Coaching Notes
 // ---------------------------------------------------------------------------
-function CoachingNotesTab({ observations }) {
+function emptyNoteForm() {
+  return { date: isoDate(), strengths: '', areasForGrowth: '', feedbackProvided: '' };
+}
+
+// There's no separate coaching-notes table -- a note is just the feedback
+// fields of an observation (see the derivation below). So "New coaching
+// note" creates a minimal observation with only those fields set and
+// everything classroom-visit-specific (lesson, standard, engagement) left
+// blank. It appears here immediately, and also as a bare-bones row on the
+// Observations tab, since that's the same underlying record.
+function CoachingNotesTab({ observations, teacherId, db, writable }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState(emptyNoteForm);
+  const [saveError, setSaveError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
   const notes = useMemo(() => {
     const out = [];
     observations.forEach((o) => {
@@ -852,8 +869,54 @@ function CoachingNotesTab({ observations }) {
     return out.sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [observations]);
 
+  function openNew() {
+    setForm(emptyNoteForm());
+    setSaveError(null);
+    setOpen(true);
+  }
+
+  function canSave() {
+    return !!(form.strengths.trim() || form.areasForGrowth.trim() || form.feedbackProvided.trim());
+  }
+
+  async function save() {
+    if (!canSave() || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await db.insert(
+        'observations',
+        {
+          teacherId,
+          date: form.date,
+          strengths: form.strengths.trim(),
+          areasForGrowth: form.areasForGrowth.trim(),
+          feedbackProvided: form.feedbackProvided.trim(),
+          createdBy: 'coach',
+          sharedWithTeacher: { whole: false, sections: [] },
+        },
+        'added coaching note'
+      );
+      setOpen(false);
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save this note. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <Card title="Coaching notes" count={notes.length}>
+    <Card
+      title="Coaching notes"
+      count={notes.length}
+      action={
+        writable && (
+          <button className="btn btn--primary btn--sm" onClick={openNew}>
+            New coaching note
+          </button>
+        )
+      }
+    >
       <p className="muted small mb-2">
         Coaching notes are visible to coach, principal, and assistant principals. Nothing is shared
         with the teacher automatically.
@@ -877,6 +940,65 @@ function CoachingNotesTab({ observations }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {open && (
+        <Modal
+          title="New coaching note"
+          onClose={() => setOpen(false)}
+          maxWidth={560}
+          footer={
+            <>
+              {saveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {saveError}
+                </p>
+              )}
+              <button className="btn btn--ghost" onClick={() => setOpen(false)}>
+                Cancel
+              </button>
+              <button className="btn btn--primary" onClick={save} disabled={!canSave() || saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </>
+          }
+        >
+          <div className="stack">
+            <Field label="Date">
+              <input
+                className="input"
+                type="date"
+                value={form.date}
+                onChange={(e) => setForm({ ...form, date: e.target.value })}
+              />
+            </Field>
+            <Field label="Strengths" hint="optional">
+              <textarea
+                className="textarea"
+                value={form.strengths}
+                onChange={(e) => setForm({ ...form, strengths: e.target.value })}
+              />
+            </Field>
+            <Field label="Areas for growth" hint="optional">
+              <textarea
+                className="textarea"
+                value={form.areasForGrowth}
+                onChange={(e) => setForm({ ...form, areasForGrowth: e.target.value })}
+              />
+            </Field>
+            <Field label="Feedback provided" hint="optional">
+              <textarea
+                className="textarea"
+                value={form.feedbackProvided}
+                onChange={(e) => setForm({ ...form, feedbackProvided: e.target.value })}
+              />
+            </Field>
+            <p className="muted small" style={{ margin: 0 }}>
+              Fill in at least one. Saved as a lightweight observation record, so it also appears
+              (with no lesson or engagement details) on the Observations tab.
+            </p>
+          </div>
+        </Modal>
       )}
     </Card>
   );
