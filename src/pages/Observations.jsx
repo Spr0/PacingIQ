@@ -156,6 +156,8 @@ export default function Observations() {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [attachmentError, setAttachmentError] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const [saving, setSaving] = useState(false);
   // Blob keys uploaded during this form session that aren't attached to a
   // saved record yet. Cleaned up if the form is cancelled before saving.
   const [pendingKeys, setPendingKeys] = useState([]);
@@ -331,6 +333,7 @@ export default function Observations() {
     setPendingKeys([]);
     setRemovedKeys([]);
     setAttachmentError(null);
+    setSaveError(null);
     setFormOpen(true);
   }
 
@@ -365,6 +368,7 @@ export default function Observations() {
     setRemovedKeys([]);
     setViewId(null);
     setAttachmentError(null);
+    setSaveError(null);
     setFormOpen(true);
   }
 
@@ -378,6 +382,7 @@ export default function Observations() {
     setPendingKeys([]);
     setRemovedKeys([]);
     setAttachmentError(null);
+    setSaveError(null);
   }
 
   // Cancels the form: newly uploaded attachments that were never saved to a
@@ -391,20 +396,31 @@ export default function Observations() {
     return !!form.teacherId && !!form.date;
   }
 
-  function save() {
-    if (!canSave()) return;
-    if (editingId) {
-      db.update('observations', editingId, { ...form }, 'updated observation');
-    } else {
-      db.insert(
-        'observations',
-        { ...form, createdBy: 'coach', sharedWithTeacher: { whole: false, sections: [] } },
-        'created observation'
-      );
+  // Awaited (unlike a fire-and-forget db call) so a failed write -- a bad
+  // value Postgres rejects, a dropped connection -- surfaces as an error the
+  // user can see and keeps the form open with their notes intact, instead of
+  // the modal closing as if it saved while the record silently never landed.
+  async function save() {
+    if (!canSave() || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (editingId) {
+        await db.update('observations', editingId, { ...form }, 'updated observation');
+      } else {
+        await db.insert(
+          'observations',
+          { ...form, createdBy: 'coach', sharedWithTeacher: { whole: false, sections: [] } },
+          'created observation'
+        );
+      }
+      // Now that the record no longer references them, the removed blobs are safe to delete.
+      removedKeys.forEach((key) => deleteAttachment(key));
+      resetFormUI();
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save this observation. Please try again.');
+      setSaving(false);
     }
-    // Now that the record no longer references them, the removed blobs are safe to delete.
-    removedKeys.forEach((key) => deleteAttachment(key));
-    resetFormUI();
   }
 
   function toggleShareWhole(obs, checked) {
@@ -636,11 +652,16 @@ export default function Observations() {
           maxWidth={760}
           footer={
             <>
+              {saveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {saveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={closeForm}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={save} disabled={!canSave()}>
-                Save
+              <button className="btn btn--primary" onClick={save} disabled={!canSave() || saving}>
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </>
           }

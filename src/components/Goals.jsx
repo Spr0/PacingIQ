@@ -24,11 +24,14 @@ function emptyGoal(teacherName) {
 export default function Goals({ teacherId, teacherName, goals, db, writable }) {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(() => emptyGoal(teacherName));
+  const [saveError, setSaveError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   const sorted = [...goals].sort((a, b) => (a.targetDate || '9999') < (b.targetDate || '9999') ? -1 : 1);
 
   function openNew() {
     setForm(emptyGoal(teacherName));
+    setSaveError(null);
     setModal(true);
   }
 
@@ -42,12 +45,16 @@ export default function Goals({ teacherId, teacherName, goals, db, writable }) {
       targetDate: goal.targetDate || '',
       status: goal.status || 'Open',
     });
+    setSaveError(null);
     setModal(true);
   }
 
-  function save() {
+  // Awaited so a failed write surfaces as an error the user can see and
+  // leaves the form open with their input intact, instead of the modal
+  // closing as if it saved while the goal silently never landed.
+  async function save() {
     const title = form.title.trim();
-    if (!title) return;
+    if (!title || saving) return;
     const patch = {
       teacherId,
       title,
@@ -58,12 +65,20 @@ export default function Goals({ teacherId, teacherName, goals, db, writable }) {
       status: form.status,
       updatedAt: isoDate(),
     };
-    if (form.id) {
-      db.update('goals', form.id, patch, 'updated goal');
-    } else {
-      db.insert('goals', { ...patch, createdAt: isoDate() }, 'created goal');
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (form.id) {
+        await db.update('goals', form.id, patch, 'updated goal');
+      } else {
+        await db.insert('goals', { ...patch, createdAt: isoDate() }, 'created goal');
+      }
+      setModal(false);
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save this goal. Please try again.');
+    } finally {
+      setSaving(false);
     }
-    setModal(false);
   }
 
   function deleteGoal(goal) {
@@ -186,11 +201,16 @@ export default function Goals({ teacherId, teacherName, goals, db, writable }) {
           maxWidth={560}
           footer={
             <>
+              {saveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {saveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={() => setModal(false)}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={save} disabled={!form.title.trim()}>
-                Save goal
+              <button className="btn btn--primary" onClick={save} disabled={!form.title.trim() || saving}>
+                {saving ? 'Saving…' : 'Save goal'}
               </button>
             </>
           }

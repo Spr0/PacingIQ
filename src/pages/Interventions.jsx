@@ -49,6 +49,13 @@ export default function Interventions() {
 
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [saveError, setSaveError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  // Shared banner for the inline, no-modal actions below (toggling a
+  // requirement, changing an action's status, completing a case) -- there's
+  // no per-row toast in this app, so a failed write surfaces here instead of
+  // just doing nothing with no explanation.
+  const [actionError, setActionError] = useState(null);
 
   const teacherName = useMemo(() => {
     const map = {};
@@ -82,52 +89,83 @@ export default function Interventions() {
   function openNew() {
     const firstRed = rollups.find((r) => r.pacingStatus === 'red' && !r.intervention);
     setForm({ ...EMPTY_FORM, teacherId: firstRed ? firstRed.teacher.id : '' });
+    setSaveError(null);
     setShowModal(true);
   }
 
-  function createIntervention() {
-    if (!form.teacherId) return;
-    db.insert(
-      'interventions',
-      {
-        teacherId: form.teacherId,
-        status: 'In Progress',
-        openedDate: isoDate(),
-        concern: form.concern.trim(),
-        rootCause: form.rootCause.trim(),
-        responsiblePerson: form.responsiblePerson.trim() || 'Coach',
-        dueDate: form.dueDate || '',
-        followUpDate: form.followUpDate || '',
-        evidenceOfCompletion: '',
-        requirements: {
-          caseCreated: true,
-          actionPlan: false,
-          coachingMeetingScheduled: false,
-          followUpObservation: false,
-          leadershipReview: false,
+  // Awaited so a failed write surfaces as an error the user can see and
+  // leaves the form open with their input intact, instead of the modal
+  // closing as if it saved while the case silently never landed.
+  async function createIntervention() {
+    if (!form.teacherId || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await db.insert(
+        'interventions',
+        {
+          teacherId: form.teacherId,
+          status: 'In Progress',
+          openedDate: isoDate(),
+          concern: form.concern.trim(),
+          rootCause: form.rootCause.trim(),
+          responsiblePerson: form.responsiblePerson.trim() || 'Coach',
+          dueDate: form.dueDate || '',
+          followUpDate: form.followUpDate || '',
+          evidenceOfCompletion: '',
+          requirements: {
+            caseCreated: true,
+            actionPlan: false,
+            coachingMeetingScheduled: false,
+            followUpObservation: false,
+            leadershipReview: false,
+          },
+          agreedActions: [],
         },
-        agreedActions: [],
-      },
-      'opened intervention'
-    );
-    setShowModal(false);
-    setForm(EMPTY_FORM);
+        'opened intervention'
+      );
+      setShowModal(false);
+      setForm(EMPTY_FORM);
+    } catch (err) {
+      setSaveError(err.message || 'Failed to open this intervention. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function toggleRequirement(iv, key) {
+  // These three are inline, no-modal actions (a checkbox-like toggle, a
+  // status dropdown, a button) rather than a form with something to keep
+  // open on failure -- so a failed write is surfaced via the shared
+  // actionError banner instead of a per-field error.
+  async function toggleRequirement(iv, key) {
     const requirements = { ...iv.requirements, [key]: !iv.requirements[key] };
-    db.update('interventions', iv.id, { requirements }, 'updated intervention');
+    setActionError(null);
+    try {
+      await db.update('interventions', iv.id, { requirements }, 'updated intervention');
+    } catch (err) {
+      setActionError(err.message || 'Failed to update that requirement. Please try again.');
+    }
   }
 
-  function changeActionStatus(iv, actionId, status) {
+  async function changeActionStatus(iv, actionId, status) {
     const agreedActions = (iv.agreedActions || []).map((a) =>
       a.id === actionId ? { ...a, status } : a
     );
-    db.update('interventions', iv.id, { agreedActions }, 'updated action plan');
+    setActionError(null);
+    try {
+      await db.update('interventions', iv.id, { agreedActions }, 'updated action plan');
+    } catch (err) {
+      setActionError(err.message || 'Failed to update that action. Please try again.');
+    }
   }
 
-  function completeIntervention(iv) {
-    db.update('interventions', iv.id, { status: 'Complete' }, 'completed intervention');
+  async function completeIntervention(iv) {
+    setActionError(null);
+    try {
+      await db.update('interventions', iv.id, { status: 'Complete' }, 'completed intervention');
+    } catch (err) {
+      setActionError(err.message || 'Failed to complete this intervention. Please try again.');
+    }
   }
 
   function allRequirementsMet(iv) {
@@ -142,6 +180,8 @@ export default function Interventions() {
           {redNeedingCase.map((r) => r.teacher.name).join(', ')}.
         </div>
       )}
+
+      {actionError && <div className="banner banner--danger">{actionError}</div>}
 
       <div className="row row--between row--wrap">
         <span className="muted small">
@@ -324,15 +364,20 @@ export default function Interventions() {
           maxWidth={520}
           footer={
             <>
+              {saveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {saveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={() => setShowModal(false)}>
                 Cancel
               </button>
               <button
                 className="btn btn--primary"
                 onClick={createIntervention}
-                disabled={!form.teacherId}
+                disabled={!form.teacherId || saving}
               >
-                Open case
+                {saving ? 'Saving…' : 'Open case'}
               </button>
             </>
           }

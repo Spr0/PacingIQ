@@ -32,9 +32,13 @@ const EMPTY_TEMPLATE_FORM = { id: null, title: '', category: '', description: ''
 export default function ActionPlans({ teacherId, plans, templates, db, writable }) {
   const [planModal, setPlanModal] = useState(false);
   const [planForm, setPlanForm] = useState(EMPTY_PLAN_FORM);
+  const [planSaveError, setPlanSaveError] = useState(null);
+  const [planSaving, setPlanSaving] = useState(false);
 
   const [templateModal, setTemplateModal] = useState(false);
   const [templateForm, setTemplateForm] = useState(EMPTY_TEMPLATE_FORM);
+  const [templateSaveError, setTemplateSaveError] = useState(null);
+  const [templateSaving, setTemplateSaving] = useState(false);
 
   const sortedPlans = [...plans].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 
@@ -51,6 +55,7 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
         ? tpl.steps.map((s) => ({ id: genId('step'), description: s.description, owner: s.defaultOwner || '', dueDate: '', status: 'Open' }))
         : [emptyStep()],
     });
+    setPlanSaveError(null);
     setPlanModal(true);
   }
 
@@ -62,6 +67,7 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
       source: plan.source || 'custom',
       steps: plan.steps.length ? plan.steps.map((s) => ({ ...s })) : [emptyStep()],
     });
+    setPlanSaveError(null);
     setPlanModal(true);
   }
 
@@ -80,9 +86,12 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
     setPlanForm((f) => ({ ...f, steps: f.steps.filter((_, i) => i !== index) }));
   }
 
-  function savePlan() {
+  // Awaited so a failed write surfaces as an error the user can see and
+  // leaves the form open with their input intact, instead of the modal
+  // closing as if it saved while the plan silently never landed.
+  async function savePlan() {
     const title = planForm.title.trim();
-    if (!title) return;
+    if (!title || planSaving) return;
     const steps = planForm.steps
       .map((s) => ({ ...s, description: s.description.trim(), owner: s.owner.trim() }))
       .filter((s) => s.description);
@@ -96,13 +105,21 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
       updatedAt: isoDate(),
     };
 
-    if (planForm.id) {
-      db.update('actionPlans', planForm.id, patch, 'updated action plan');
-    } else {
-      db.insert('actionPlans', { ...patch, createdAt: isoDate() }, 'created action plan');
+    setPlanSaving(true);
+    setPlanSaveError(null);
+    try {
+      if (planForm.id) {
+        await db.update('actionPlans', planForm.id, patch, 'updated action plan');
+      } else {
+        await db.insert('actionPlans', { ...patch, createdAt: isoDate() }, 'created action plan');
+      }
+      setPlanModal(false);
+      setPlanForm(EMPTY_PLAN_FORM);
+    } catch (err) {
+      setPlanSaveError(err.message || 'Failed to save this plan. Please try again.');
+    } finally {
+      setPlanSaving(false);
     }
-    setPlanModal(false);
-    setPlanForm(EMPTY_PLAN_FORM);
   }
 
   function deletePlan(plan) {
@@ -118,6 +135,7 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
 
   function openNewTemplate() {
     setTemplateForm(EMPTY_TEMPLATE_FORM);
+    setTemplateSaveError(null);
     setTemplateModal(true);
   }
 
@@ -129,6 +147,7 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
       description: tpl.description || '',
       steps: tpl.steps.length ? tpl.steps.map((s) => ({ ...s })) : [emptyTemplateStep()],
     });
+    setTemplateSaveError(null);
     setTemplateModal(true);
   }
 
@@ -147,9 +166,12 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
     setTemplateForm((f) => ({ ...f, steps: f.steps.filter((_, i) => i !== index) }));
   }
 
-  function saveTemplate() {
+  // Awaited so a failed write surfaces as an error the user can see and
+  // leaves the form open with their input intact, instead of the modal
+  // closing as if it saved while the template silently never landed.
+  async function saveTemplate() {
     const title = templateForm.title.trim();
-    if (!title) return;
+    if (!title || templateSaving) return;
     const steps = templateForm.steps
       .map((s) => ({ ...s, description: s.description.trim(), defaultOwner: s.defaultOwner.trim() }))
       .filter((s) => s.description);
@@ -161,13 +183,21 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
       steps,
     };
 
-    if (templateForm.id) {
-      db.update('actionPlanTemplates', templateForm.id, patch, 'updated action plan template');
-    } else {
-      db.insert('actionPlanTemplates', patch, 'created action plan template');
+    setTemplateSaving(true);
+    setTemplateSaveError(null);
+    try {
+      if (templateForm.id) {
+        await db.update('actionPlanTemplates', templateForm.id, patch, 'updated action plan template');
+      } else {
+        await db.insert('actionPlanTemplates', patch, 'created action plan template');
+      }
+      setTemplateModal(false);
+      setTemplateForm(EMPTY_TEMPLATE_FORM);
+    } catch (err) {
+      setTemplateSaveError(err.message || 'Failed to save this template. Please try again.');
+    } finally {
+      setTemplateSaving(false);
     }
-    setTemplateModal(false);
-    setTemplateForm(EMPTY_TEMPLATE_FORM);
   }
 
   function deleteTemplate(tpl) {
@@ -334,11 +364,16 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
           maxWidth={620}
           footer={
             <>
+              {planSaveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {planSaveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={() => setPlanModal(false)}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={savePlan} disabled={!planForm.title.trim()}>
-                Save plan
+              <button className="btn btn--primary" onClick={savePlan} disabled={!planForm.title.trim() || planSaving}>
+                {planSaving ? 'Saving…' : 'Save plan'}
               </button>
             </>
           }
@@ -429,11 +464,16 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
           maxWidth={620}
           footer={
             <>
+              {templateSaveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {templateSaveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={() => setTemplateModal(false)}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={saveTemplate} disabled={!templateForm.title.trim()}>
-                Save template
+              <button className="btn btn--primary" onClick={saveTemplate} disabled={!templateForm.title.trim() || templateSaving}>
+                {templateSaving ? 'Saving…' : 'Save template'}
               </button>
             </>
           }

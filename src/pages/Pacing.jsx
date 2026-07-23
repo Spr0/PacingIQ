@@ -47,6 +47,8 @@ export default function Pacing() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [showCalendarReader, setShowCalendarReader] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   // The current week is the latest weekOf present in the data.
   const currentWeek = useMemo(() => {
@@ -92,6 +94,7 @@ export default function Pacing() {
 
   function openLog() {
     setForm(EMPTY_FORM);
+    setSaveError(null);
     setShowModal(true);
   }
 
@@ -110,11 +113,15 @@ export default function Pacing() {
       customReason: isCustom ? p.exceptionReason : '',
       notes: (p && p.notes) || '',
     });
+    setSaveError(null);
     setShowModal(true);
   }
 
-  function save() {
-    if (!form.teacherId) return;
+  // Awaited so a failed write surfaces as an error the user can see and
+  // leaves the form open with their input intact, instead of the modal
+  // closing as if it saved while the pacing entry silently never landed.
+  async function save() {
+    if (!form.teacherId || saving) return;
     if (subjectOptions.length > 0 && !form.subject) return;
 
     let exceptionReason = '';
@@ -143,14 +150,21 @@ export default function Pacing() {
         (p.subject || '') === (form.subject || '')
     );
 
-    if (existing) {
-      db.update('pacingEntries', existing.id, patch, 'updated pacing');
-    } else {
-      db.insert('pacingEntries', { ...patch, weekOf: currentWeek }, 'logged pacing');
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (existing) {
+        await db.update('pacingEntries', existing.id, patch, 'updated pacing');
+      } else {
+        await db.insert('pacingEntries', { ...patch, weekOf: currentWeek }, 'logged pacing');
+      }
+      setShowModal(false);
+      setForm(EMPTY_FORM);
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save this pacing entry. Please try again.');
+    } finally {
+      setSaving(false);
     }
-
-    setShowModal(false);
-    setForm(EMPTY_FORM);
   }
 
   const previewStatus = pacingStatus(Number(form.daysBehind) || 0);
@@ -299,15 +313,20 @@ export default function Pacing() {
           maxWidth={520}
           footer={
             <>
+              {saveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {saveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={() => setShowModal(false)}>
                 Cancel
               </button>
               <button
                 className="btn btn--primary"
                 onClick={save}
-                disabled={!form.teacherId || (subjectOptions.length > 0 && !form.subject)}
+                disabled={!form.teacherId || (subjectOptions.length > 0 && !form.subject) || saving}
               >
-                Save
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </>
           }

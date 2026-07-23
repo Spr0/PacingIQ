@@ -46,6 +46,8 @@ export default function Teachers() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [saveError, setSaveError] = useState(null);
+  const [saving, setSaving] = useState(false);
   const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
 
   function toggleSort(key) {
@@ -111,12 +113,17 @@ export default function Teachers() {
 
   function openModal() {
     setForm(EMPTY_FORM);
+    setSaveError(null);
     setShowModal(true);
   }
 
-  function save() {
+  // Awaited so a failed insert (network blip, a rejected constraint) surfaces
+  // as an error the user can see and leaves the form open with their input
+  // intact, instead of the modal closing as if it saved while the new
+  // teacher silently never landed.
+  async function save() {
     const name = form.name.trim();
-    if (!name) return;
+    if (!name || saving) return;
     const subjects = form.subjects
       .split(',')
       .map((s) => s.trim())
@@ -128,9 +135,17 @@ export default function Teachers() {
       assignedAdmin: form.assignedAdmin.trim(),
     };
     if (subjects.length > 1) record.subjects = subjects;
-    db.insert('teachers', record, 'added teacher');
-    setShowModal(false);
-    setForm(EMPTY_FORM);
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await db.insert('teachers', record, 'added teacher');
+      setShowModal(false);
+      setForm(EMPTY_FORM);
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save this teacher. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -254,11 +269,16 @@ export default function Teachers() {
           maxWidth={480}
           footer={
             <>
+              {saveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {saveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={() => setShowModal(false)}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={save} disabled={!form.name.trim()}>
-                Save
+              <button className="btn btn--primary" onClick={save} disabled={!form.name.trim() || saving}>
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </>
           }

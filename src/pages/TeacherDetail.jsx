@@ -64,6 +64,8 @@ export default function TeacherDetail() {
   const [lessonReaderOpen, setLessonReaderOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   function openAi(kind) {
     setAiInitialKind(kind);
@@ -78,29 +80,41 @@ export default function TeacherDetail() {
       gradeLevel: rollup.teacher.gradeLevel || '',
       assignedAdmin: rollup.teacher.assignedAdmin || '',
     });
+    setSaveError(null);
     setEditOpen(true);
   }
 
-  function saveTeacherEdit() {
+  // Awaited so a failed update surfaces as an error the user can see and
+  // leaves the form open with their edits intact, instead of the modal
+  // closing as if it saved while the edit silently never landed.
+  async function saveTeacherEdit() {
     const name = editForm.name.trim();
-    if (!name) return;
+    if (!name || saving) return;
     const subjects = editForm.subjects
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    db.update(
-      'teachers',
-      rollup.teacher.id,
-      {
-        name,
-        subject: editForm.subject.trim() || (subjects.length ? subjects.join(', ') : ''),
-        gradeLevel: editForm.gradeLevel.trim(),
-        assignedAdmin: editForm.assignedAdmin.trim(),
-        subjects: subjects.length > 1 ? subjects : undefined,
-      },
-      'updated teacher'
-    );
-    setEditOpen(false);
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await db.update(
+        'teachers',
+        rollup.teacher.id,
+        {
+          name,
+          subject: editForm.subject.trim() || (subjects.length ? subjects.join(', ') : ''),
+          gradeLevel: editForm.gradeLevel.trim(),
+          assignedAdmin: editForm.assignedAdmin.trim(),
+          subjects: subjects.length > 1 ? subjects : undefined,
+        },
+        'updated teacher'
+      );
+      setEditOpen(false);
+    } catch (err) {
+      setSaveError(err.message || 'Failed to save this teacher. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   const myObservations = useMemo(
@@ -292,11 +306,16 @@ export default function TeacherDetail() {
           maxWidth={480}
           footer={
             <>
+              {saveError && (
+                <p className="small" style={{ color: 'var(--red-600)', margin: '0 auto 0 0' }}>
+                  {saveError}
+                </p>
+              )}
               <button className="btn btn--ghost" onClick={() => setEditOpen(false)}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={saveTeacherEdit} disabled={!editForm.name.trim()}>
-                Save
+              <button className="btn btn--primary" onClick={saveTeacherEdit} disabled={!editForm.name.trim() || saving}>
+                {saving ? 'Saving…' : 'Save'}
               </button>
             </>
           }

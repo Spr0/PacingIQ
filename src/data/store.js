@@ -53,7 +53,13 @@ function patchToSnake(patch) {
   const out = {};
   for (const [k, v] of Object.entries(patch)) {
     if (v === undefined) continue; // let column defaults / existing values stand
-    out[toSnakeKey(k)] = v;
+    // An empty string from a blank optional form field (a follow-up date, an
+    // unfilled numeric score, an unselected template id) is invalid input for
+    // any non-text column -- e.g. Postgres rejects "" for a date column
+    // outright. Every optional field in the UI already renders '' and null
+    // the same way, so normalizing to null here is lossless and lets Postgres
+    // store an actual absence instead of erroring.
+    out[toSnakeKey(k)] = v === '' ? null : v;
   }
   return out;
 }
