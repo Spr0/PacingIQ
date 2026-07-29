@@ -26,6 +26,7 @@ const PATHS = {
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 1.8" /></>,
   chart: <><path d="M4 19V5M4 19h16" /><path d="M8 16v-4M12 16V8M16 16v-6" /></>,
   flame: <><path d="M12 3s5 4 5 9a5 5 0 0 1-10 0c0-2 1-3 1-3s.5 1.5 2 1.5C11 9 9 7 12 3Z" /></>,
+  shuffle: <><path d="M3 17h2.8c1.6 0 3-.9 3.8-2.4L14 6" /><path d="M3 7h2.8c1.6 0 3 .9 3.8 2.4l.4.8" /><path d="M13 16.8c.8 1.5 2.2 2.4 3.8 2.4H20" /><path d="M20 7h-3.2c-1.6 0-3 .9-3.8 2.4" /><path d="M17 4l3 3-3 3" /><path d="M17 21l3-3-3-3" /></>,
   arrow: <path d="M9 6l6 6-6 6" />,
 };
 

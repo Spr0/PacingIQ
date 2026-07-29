@@ -366,6 +366,8 @@ h1, h2, h3, h4, h5 {
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .table a.tname { font-weight: var(--fw-semibold); color: var(--text-strong); }
 .table a.tname:hover { color: var(--text-link); }
+.table td.schedule-daybar { background: var(--surface-sunken); font-weight: var(--fw-bold); color: var(--text-strong); padding-top: 8px; padding-bottom: 8px; }
+.table tbody tr:has(td.schedule-daybar):hover { background: var(--surface-sunken); }
 
 /* ---------- Buttons ---------- */
 .btn {

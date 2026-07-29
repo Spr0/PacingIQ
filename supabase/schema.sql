@@ -110,6 +110,27 @@ create policy "teachers_update" on public.teachers for update using (public.is_c
 create policy "teachers_delete" on public.teachers for delete using (public.is_coach());
 
 -- ---------------------------------------------------------------------------
+-- schedule_entries -- the observation-rotation randomizer's output (see
+-- src/pages/Schedule.jsx). One row per teacher per scheduled visit date.
+-- Regenerating clears every row and reinserts a fresh set rather than
+-- updating in place, so there's no status/outcome column here -- an actual
+-- visit is recorded as its own row in `observations`, not by mutating this
+-- table.
+-- ---------------------------------------------------------------------------
+create table public.schedule_entries (
+  id uuid primary key default gen_random_uuid(),
+  teacher_id uuid not null references public.teachers(id) on delete cascade,
+  scheduled_date date not null,
+  created_at timestamptz not null default now()
+);
+
+alter table public.schedule_entries enable row level security;
+create policy "schedule_select" on public.schedule_entries for select using (public.can_view());
+create policy "schedule_insert" on public.schedule_entries for insert with check (public.is_coach());
+create policy "schedule_update" on public.schedule_entries for update using (public.is_coach()) with check (public.is_coach());
+create policy "schedule_delete" on public.schedule_entries for delete using (public.is_coach());
+
+-- ---------------------------------------------------------------------------
 -- pacing_entries
 -- ---------------------------------------------------------------------------
 create table public.pacing_entries (
@@ -298,6 +319,7 @@ grant usage on schema public to authenticated;
 grant select, insert, update, delete on
   public.profiles,
   public.teachers,
+  public.schedule_entries,
   public.pacing_entries,
   public.observations,
   public.assessments,

@@ -18,6 +18,7 @@ const AppContext = createContext(null);
 
 const EMPTY_COLLECTIONS = {
   teachers: [],
+  scheduleEntries: [],
   observations: [],
   pacingEntries: [],
   assessments: [],
@@ -70,6 +71,12 @@ export function AppProvider({ children }) {
         await store.remove(collection, id);
         if (auditAction) await store.logAudit(user, auditAction, `${collection} ${id}`);
         await refresh();
+      },
+      async replaceSchedule(entries, auditAction) {
+        const rows = await store.replaceSchedule(entries);
+        if (auditAction) await store.logAudit(user, auditAction, `${rows.length} scheduled visit(s)`);
+        await refresh();
+        return rows;
       },
       async audit(action, detail) {
         await store.logAudit(user, action, detail);

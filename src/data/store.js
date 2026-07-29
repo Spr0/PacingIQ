@@ -14,6 +14,7 @@ import { supabase } from './supabaseClient.js';
 // App collection name -> Postgres table name.
 const TABLES = {
   teachers: 'teachers',
+  scheduleEntries: 'schedule_entries',
   observations: 'observations',
   pacingEntries: 'pacing_entries',
   assessments: 'assessments',
@@ -199,13 +200,42 @@ export async function remove(collection, id) {
   check(`remove(${collection})`, error);
 }
 
+// Wholesale-replaces the observation-rotation schedule: clears every
+// existing schedule_entries row, then inserts the freshly generated set in
+// one request. Used by the randomizer (see src/pages/Schedule.jsx) instead
+// of the generic insert() above, which would mean one request per row for a
+// roster that can be dozens of teachers.
+export async function replaceSchedule(entries) {
+  const { error: delError } = await supabase.from('schedule_entries').delete().not('id', 'is', null);
+  check('replaceSchedule (clear)', delError);
+  if (!entries.length) return [];
+  const { data, error } = await supabase
+    .from('schedule_entries')
+    .insert(entries.map(patchToSnake))
+    .select();
+  check('replaceSchedule (insert)', error);
+  return rowsToCamel(data);
+}
+
 // Fetches every collection in parallel. Replaces the old synchronous
 // "one localStorage blob" read; callers now await this once on load and
 // after any mutation that needs a full refresh (most mutations instead
 // patch local React state directly from the returned row -- see
-// AppContext.jsx).
+// AppContext.jsx). A single collection failing (e.g. a table a schema
+// migration hasn't been applied for yet) falls back to an empty list
+// instead of rejecting the whole call -- otherwise one missing table would
+// blank every page, not just the one that needed it.
 export async function loadAll() {
-  const entries = await Promise.all(COLLECTIONS.map(async (c) => [c, await getAll(c)]));
+  const entries = await Promise.all(
+    COLLECTIONS.map(async (c) => {
+      try {
+        return [c, await getAll(c)];
+      } catch (err) {
+        console.warn(`loadAll: ${c} failed, showing empty until this is fixed`, err);
+        return [c, []];
+      }
+    })
+  );
   return Object.fromEntries(entries);
 }
 
