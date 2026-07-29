@@ -17,6 +17,25 @@ import * as store from '../data/store.js';
 
 const AuthContext = createContext(null);
 
+// Resolves to `undefined` (treated the same as "no session" by callers) if
+// `promise` doesn't settle within `ms`, instead of leaving the caller stuck
+// waiting forever.
+function withTimeout(promise, ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(undefined), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(undefined);
+      }
+    );
+  });
+}
+
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined); // undefined = not checked yet, null = signed out
   const [profile, setProfile] = useState(null);
@@ -41,22 +60,34 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let cancelled = false;
 
-    store.getSession().then(async (s) => {
-      if (cancelled) return;
-      if (!s) {
-        // No friction: sign in anonymously instead of showing SignIn. If
-        // the Supabase provider isn't enabled yet this just fails quietly
-        // and SignIn renders as a fallback -- nothing breaks either way.
-        try {
-          s = await store.signInAnonymously();
-        } catch {
-          // fall through to SignIn below
+    (async () => {
+      try {
+        // getSession() has no .catch below it and can also hang instead of
+        // settling at all (a known supabase-js issue around its cross-tab
+        // auth lock) -- either way `loading` was never coming back down,
+        // which left the app on `if (loading) return null` in App.jsx
+        // permanently blank until a refresh happened to dodge the race.
+        // Racing it against a timeout bounds the hang; the try/finally
+        // below covers the plain-rejection case.
+        let s = await withTimeout(store.getSession(), 8000);
+        if (cancelled) return;
+        if (!s) {
+          // No friction: sign in anonymously instead of showing SignIn. If
+          // the Supabase provider isn't enabled yet this just fails quietly
+          // and SignIn renders as a fallback -- nothing breaks either way.
+          try {
+            s = await store.signInAnonymously();
+          } catch {
+            // fall through to SignIn below
+          }
         }
+        if (cancelled) return;
+        setSession(s);
+        if (s) await loadProfile(s);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setSession(s);
-      if (s) await loadProfile(s);
-      setLoading(false);
-    });
+    })();
 
     const unsubscribe = store.onAuthStateChange(async (s) => {
       if (cancelled) return;
