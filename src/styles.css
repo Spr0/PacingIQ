@@ -369,6 +369,24 @@ h1, h2, h3, h4, h5 {
 .table td.schedule-daybar { background: var(--surface-sunken); font-weight: var(--fw-bold); color: var(--text-strong); padding-top: 8px; padding-bottom: 8px; }
 .table tbody tr:has(td.schedule-daybar):hover { background: var(--surface-sunken); }
 
+/* ---------- Print ----------
+   The observation rotation is meant to be carried on a clipboard, so printing
+   drops the app chrome (sidebar, topbar, buttons) and lets the tables break
+   across pages without splitting a row. */
+@media print {
+  .sidebar, .topbar, .no-print { display: none !important; }
+  .main { margin-left: 0 !important; }
+  .content { padding: 0 !important; max-width: none !important; }
+  .app { display: block !important; }
+  .card, .pcard { box-shadow: none !important; border: 1px solid #ccc !important; break-inside: auto; }
+  .card__head { border-bottom: 1px solid #ccc !important; }
+  .table tr, .table td, .table th { break-inside: avoid; }
+  .table td.schedule-daybar { background: #f0f0f0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .badge, .pill { border: 1px solid #999; }
+  a { text-decoration: none !important; color: #000 !important; }
+  @page { margin: 14mm; }
+}
+
 /* ---------- Buttons ---------- */
 .btn {
   display: inline-flex; align-items: center; gap: 7px; cursor: pointer;

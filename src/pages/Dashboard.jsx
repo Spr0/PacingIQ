@@ -9,7 +9,8 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { isOverdue } from '../lib/intelligence.js';
-import { formatDate, daysUntil } from '../lib/dates.js';
+import { groupSchedule, thisWeek } from '../lib/rotation.js';
+import { formatDate, daysUntil, parse } from '../lib/dates.js';
 import { Icon } from '../components/icons.jsx';
 import { Empty, InfoTip, RISK_SCORE_TOOLTIP, PACING_STATUS_TOOLTIP } from '../components/ui.jsx';
 
@@ -50,6 +51,85 @@ function PCard({ icon, accent, eyebrow, title, count, linkTo, linkLabel, childre
       </div>
       <div className="pcard__body">{children}</div>
     </section>
+  );
+}
+
+// Today's slice of the observation rotation. Shows today's assigned teachers
+// with what's already been observed, then the rest of the working week
+// collapsed to counts -- the daily-driver view, with the Schedule page for
+// looking further ahead. Hidden entirely when no rotation exists yet.
+function TodaySchedule() {
+  const { scheduleEntries, teachers, observations } = useApp();
+  const { days } = useMemo(
+    () => groupSchedule(scheduleEntries, teachers, observations),
+    [scheduleEntries, teachers, observations]
+  );
+  const week = useMemo(() => thisWeek(days), [days]);
+
+  if (!days.length) return null;
+
+  const t = week.today;
+  return (
+    <PCard
+      icon="shuffle"
+      accent="brand"
+      eyebrow="Today's rotation"
+      title={t ? `${t.doneCount} of ${t.entries.length} observed today` : 'Nothing scheduled today'}
+      linkTo="/schedule"
+      linkLabel="Full rotation"
+    >
+      {t ? (
+        t.entries.map((e) => (
+          <div className="lrow" key={e.id}>
+            <span className={`chip chip--${e.done ? 'green' : 'amber'}`}>{e.done ? '✓' : initials(e.teacher.name)}</span>
+            <div className="lrow__main">
+              <div className="lrow__name">
+                <Link to={`/teachers/${e.teacher.id}`}>{e.teacher.name}</Link>
+              </div>
+              <div className="lrow__sub">
+                {[e.teacher.subject, e.teacher.gradeLevel].filter(Boolean).join(' · ') || '—'}
+              </div>
+            </div>
+            <div className="lrow__right">
+              {e.done ? (
+                <span className="pill pill--green">
+                  <span className="dot" />
+                  {e.doneAt ? 'Done' : 'Observed'}
+                </span>
+              ) : (
+                <span className="pill pill--neutral">Scheduled</span>
+              )}
+            </div>
+          </div>
+        ))
+      ) : (
+        <Empty icon="📅">
+          No classroom visits assigned for today.
+          {week.upcoming.length > 0 && ` Next up: ${formatDate(week.upcoming[0].date)}.`}
+        </Empty>
+      )}
+
+      {week.rest.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border-subtle)', marginTop: 8, paddingTop: 8 }}>
+          <div className="section-title" style={{ padding: '0 10px' }}>
+            Rest of the week
+          </div>
+          {week.rest.map((d) => (
+            <div className="lrow" key={d.date}>
+              <div className="lrow__main">
+                <div className="lrow__name" style={{ fontWeight: 'var(--fw-medium)' }}>
+                  {parse(d.date)?.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                </div>
+              </div>
+              <div className="lrow__right muted small">
+                {d.entries.length} scheduled
+                {d.doneCount > 0 && ` · ${d.doneCount} observed`}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </PCard>
   );
 }
 
@@ -181,6 +261,11 @@ export default function Dashboard() {
           <div className="statcard__delta">across {overdueTeachers} teachers</div>
         </div>
       </div>
+
+      {/* Today's rotation sits above the priority columns: it's the only card
+          that answers "what am I doing in the next hour" rather than "who
+          needs attention this week". */}
+      <TodaySchedule />
 
       {/* Two-column priority layout */}
       <div className="dash-cols">

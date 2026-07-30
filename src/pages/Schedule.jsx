@@ -1,128 +1,107 @@
 // ---------------------------------------------------------------------------
-// Observation rotation randomizer. Randomly assigns every teacher one visit
-// day, 8 teachers per school day, across 2-week (10 weekday) cycles -- enough
-// per cycle to get everyone seen inside the 14-day compliance window
-// (SEEN_WINDOW_DAYS in lib/intelligence.js). A roster bigger than 80 spills
-// into a second cycle automatically; "Randomize again" reshuffles everyone
-// and starts a fresh rotation. The coach role can generate/clear; every
-// other role sees a read-only view.
+// Observation rotation. Randomly assigns every teacher one visit day, spread
+// evenly across a 2-week (10 school day) cycle -- see lib/rotation.js for the
+// cycle maths and why the roster is spread rather than packed at 8/day.
+//
+// When a cycle's last day has passed the next one is generated automatically,
+// so the rotation doesn't quietly lapse. Exports (.ics / CSV / print) are for
+// the coach and leadership only; teachers are never sent their visit date,
+// which is what keeps a random pacing check meaningful.
 // ---------------------------------------------------------------------------
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
-import { today, parse, isoDate } from '../lib/dates.js';
+import { today, parse, isoDate, formatDate } from '../lib/dates.js';
+import {
+  buildCycleEntries,
+  groupSchedule,
+  cycleHasEnded,
+  snapToWeekday,
+  nextWeekday,
+  CYCLE_WEEKDAYS,
+  PER_DAY_CAP,
+} from '../lib/rotation.js';
+import { downloadScheduleIcs, downloadScheduleCsv } from '../lib/scheduleExport.js';
 import { Card, Empty } from '../components/ui.jsx';
 import { Icon } from '../components/icons.jsx';
 
-const PER_DAY = 8;
-const CYCLE_WEEKDAYS = 10; // 2 school weeks -- the 14-day seen-compliance window
-
-function isWeekday(d) {
-  const day = d.getDay();
-  return day !== 0 && day !== 6;
-}
-
-function nextWeekday(d) {
-  const next = new Date(d);
-  next.setDate(next.getDate() + 1);
-  while (!isWeekday(next)) next.setDate(next.getDate() + 1);
-  return next;
-}
-
-function snapToWeekday(d) {
-  return isWeekday(d) ? d : nextWeekday(d);
-}
-
-function shuffled(list) {
-  const arr = list.slice();
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
 function weekdayLabel(dateStr) {
   const d = parse(dateStr);
-  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  return d ? d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' }) : dateStr;
 }
 
 export default function Schedule() {
-  const { teachers, scheduleEntries, db, roleKey } = useApp();
+  const { teachers, scheduleEntries, observations, db, roleKey, user } = useApp();
   const writable = can(roleKey, 'write');
 
   const [startDate, setStartDate] = useState(() => isoDate(snapToWeekday(today())));
-  const [generating, setGenerating] = useState(false);
-  const [genError, setGenError] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const autoRan = useRef(false);
 
-  async function generate() {
-    if (!teachers.length || generating) return;
-    setGenerating(true);
-    setGenError(null);
+  const { days, cycles } = useMemo(
+    () => groupSchedule(scheduleEntries, teachers, observations),
+    [scheduleEntries, teachers, observations]
+  );
+
+  // The manual Done toggle needs schedule_entries.done_at (migration 004).
+  // Rows loaded with select('*') simply omit an absent column, so probe for
+  // the key rather than assuming -- that way deploying ahead of the migration
+  // hides the button instead of offering one that errors when clicked.
+  const doneSupported = scheduleEntries.some((e) => 'doneAt' in e);
+
+  async function generate(fromDate, auditAction = 'generated observation schedule') {
+    if (!teachers.length || busy) return;
+    setBusy(true);
+    setError(null);
     try {
-      const roster = shuffled(teachers);
-      const entries = [];
-      let cursor = snapToWeekday(parse(startDate) || today());
-      for (let i = 0; i < roster.length; i += PER_DAY) {
-        const dateStr = isoDate(cursor);
-        roster.slice(i, i + PER_DAY).forEach((t) => entries.push({ teacherId: t.id, scheduledDate: dateStr }));
-        cursor = nextWeekday(cursor);
-      }
-      await db.replaceSchedule(entries, 'generated observation schedule');
+      await db.replaceSchedule(buildCycleEntries(teachers, fromDate), auditAction);
     } catch (err) {
-      setGenError(err.message || 'Failed to generate the schedule. Please try again.');
+      setError(err.message || 'Failed to generate the schedule. Please try again.');
     } finally {
-      setGenerating(false);
+      setBusy(false);
     }
   }
 
-  async function clearSchedule() {
-    if (generating) return;
-    setGenerating(true);
-    setGenError(null);
+  // Auto-advance: once the last scheduled day is in the past, lay out the next
+  // cycle so the rotation never silently stops. Guarded by a ref so it fires
+  // at most once per mount, and only for a role that may write.
+  useEffect(() => {
+    if (autoRan.current || busy || !writable || !teachers.length) return;
+    if (!days.length || !cycleHasEnded(days)) return;
+    autoRan.current = true;
+    const from = isoDate(nextWeekday(parse(days[days.length - 1].date) || today()));
+    generate(from, 'auto-generated the next observation cycle');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, writable, teachers.length, busy]);
+
+  async function toggleDone(entry) {
+    if (busy) return;
+    // An entry that's done only because an observation exists has nothing to
+    // un-tick -- the observation is the record. Only the manual flag toggles.
+    const patch = entry.doneAt
+      ? { doneAt: null, doneBy: null }
+      : { doneAt: new Date().toISOString(), doneBy: user.name };
     try {
-      await db.replaceSchedule([], 'cleared observation schedule');
+      await db.update(
+        'scheduleEntries',
+        entry.id,
+        patch,
+        entry.doneAt ? 'un-marked a scheduled visit' : 'marked a scheduled visit done'
+      );
     } catch (err) {
-      setGenError(err.message || 'Failed to clear the schedule. Please try again.');
-    } finally {
-      setGenerating(false);
+      setError(err.message || 'Could not update that visit.');
     }
   }
 
-  // Group persisted entries by date, then chunk consecutive scheduled
-  // weekdays into cycles of CYCLE_WEEKDAYS for display -- derived from the
-  // dates themselves so a reload sees the same grouping as a fresh generate.
-  const cycles = useMemo(() => {
-    const byDate = new Map();
-    scheduleEntries.forEach((e) => {
-      if (!byDate.has(e.scheduledDate)) byDate.set(e.scheduledDate, []);
-      byDate.get(e.scheduledDate).push(e);
-    });
-    const teacherById = new Map(teachers.map((t) => [t.id, t]));
-    const days = Array.from(byDate.keys())
-      .sort()
-      .map((date, i) => ({
-        date,
-        cycle: Math.floor(i / CYCLE_WEEKDAYS) + 1,
-        entries: byDate
-          .get(date)
-          .map((e) => ({ ...e, teacher: teacherById.get(e.teacherId) }))
-          .filter((e) => e.teacher) // guards against a since-deleted teacher's row until the next refresh
-          .sort((a, b) => (a.teacher.name || '').localeCompare(b.teacher.name || '')),
-      }));
-    const map = new Map();
-    days.forEach((d) => {
-      if (!map.has(d.cycle)) map.set(d.cycle, []);
-      map.get(d.cycle).push(d);
-    });
-    return Array.from(map.entries()).map(([cycle, ds]) => ({ cycle, days: ds }));
-  }, [scheduleEntries, teachers]);
+  const totalDone = days.reduce((n, d) => n + d.doneCount, 0);
+  const totalVisits = days.reduce((n, d) => n + d.entries.length, 0);
 
   return (
     <div className="stack">
-      <div className="row row--between row--wrap">
+      <div className="row row--between row--wrap no-print">
         <div className="row row--wrap" style={{ gap: 16 }}>
           <div className="row" style={{ gap: 8 }}>
             <label className="small muted" htmlFor="sched-start">
@@ -139,26 +118,41 @@ export default function Schedule() {
             />
           </div>
           <span className="small muted">
-            {teachers.length} teacher{teachers.length === 1 ? '' : 's'} · {PER_DAY} per day · {CYCLE_WEEKDAYS} school days per rotation, then repeats
+            {teachers.length} teacher{teachers.length === 1 ? '' : 's'} spread across{' '}
+            {CYCLE_WEEKDAYS} school days, then repeats
+            {totalVisits > 0 && ` · ${totalDone} of ${totalVisits} observed`}
           </span>
         </div>
-        {writable ? (
-          <div className="row" style={{ gap: 8 }}>
-            {scheduleEntries.length > 0 && (
-              <button className="btn btn--ghost" onClick={clearSchedule} disabled={generating}>
-                Clear schedule
+        <div className="row row--wrap" style={{ gap: 8 }}>
+          {totalVisits > 0 && (
+            <>
+              <button className="btn btn--sm" onClick={() => downloadScheduleIcs(days)}>
+                <Icon name="pacing" /> Calendar
               </button>
-            )}
-            <button className="btn btn--primary" onClick={generate} disabled={generating || teachers.length === 0}>
-              <Icon name="shuffle" /> {generating ? 'Randomizing…' : scheduleEntries.length ? 'Randomize again' : 'Randomize schedule'}
+              <button className="btn btn--sm" onClick={() => downloadScheduleCsv(days)}>
+                <Icon name="report" /> CSV
+              </button>
+              <button className="btn btn--sm" onClick={() => window.print()}>
+                <Icon name="audit" /> Print
+              </button>
+            </>
+          )}
+          {writable ? (
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={() => generate(startDate)}
+              disabled={busy || teachers.length === 0}
+            >
+              <Icon name="shuffle" />{' '}
+              {busy ? 'Randomizing…' : totalVisits ? 'Randomize again' : 'Randomize schedule'}
             </button>
-          </div>
-        ) : (
-          <span className="muted small">View only. Editing is limited to the coach role.</span>
-        )}
+          ) : (
+            <span className="muted small">View only. Editing is limited to the coach role.</span>
+          )}
+        </div>
       </div>
 
-      {genError && <div className="banner banner--danger">{genError}</div>}
+      {error && <div className="banner banner--danger no-print">{error}</div>}
 
       {teachers.length === 0 ? (
         <Card>
@@ -167,18 +161,19 @@ export default function Schedule() {
       ) : cycles.length === 0 ? (
         <Card>
           <Empty icon="🎲">
-            No schedule yet.{writable ? ' Click "Randomize schedule" to assign every teacher a visit day.' : ''}
+            No schedule yet.
+            {writable ? ' Click "Randomize schedule" to assign every teacher a visit day.' : ''}
           </Empty>
         </Card>
       ) : (
-        cycles.map(({ cycle, days }) => (
+        cycles.map(({ cycle, days: cycleDays }) => (
           <Card
             key={cycle}
             title={`Cycle ${cycle}`}
-            count={days.reduce((n, d) => n + d.entries.length, 0)}
+            count={cycleDays.reduce((n, d) => n + d.entries.length, 0)}
             action={
               <span className="small muted">
-                {weekdayLabel(days[0].date)} – {weekdayLabel(days[days.length - 1].date)}
+                {weekdayLabel(cycleDays[0].date)} – {weekdayLabel(cycleDays[cycleDays.length - 1].date)}
               </span>
             }
             flush
@@ -189,34 +184,61 @@ export default function Schedule() {
                   <th>Teacher</th>
                   <th>Subject</th>
                   <th>Grade</th>
+                  <th style={{ width: 110 }}>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {days.flatMap((d) => [
+                {cycleDays.flatMap((d) => [
                   <tr key={`${d.date}-head`}>
-                    <td colSpan={3} className="schedule-daybar">
-                      {weekdayLabel(d.date)} <span className="muted" style={{ fontWeight: 'var(--fw-medium)' }}>· {d.entries.length} of {PER_DAY}</span>
+                    <td colSpan={4} className="schedule-daybar">
+                      {weekdayLabel(d.date)}{' '}
+                      <span className="muted" style={{ fontWeight: 'var(--fw-medium)' }}>
+                        · {d.doneCount} of {d.entries.length} observed
+                      </span>
                     </td>
                   </tr>,
-                  ...(d.entries.length === 0
-                    ? [
-                        <tr key={`${d.date}-empty`}>
-                          <td colSpan={3} className="muted small">
-                            No teachers assigned this day.
-                          </td>
-                        </tr>,
-                      ]
-                    : d.entries.map((e) => (
-                        <tr key={e.id}>
-                          <td>
-                            <Link className="tname" to={`/teachers/${e.teacher.id}`}>
-                              {e.teacher.name}
-                            </Link>
-                          </td>
-                          <td>{e.teacher.subject || '—'}</td>
-                          <td>{e.teacher.gradeLevel || '—'}</td>
-                        </tr>
-                      ))),
+                  ...d.entries.map((e) => (
+                    <tr key={e.id}>
+                      <td>
+                        <Link className="tname" to={`/teachers/${e.teacher.id}`}>
+                          {e.teacher.name}
+                        </Link>
+                      </td>
+                      <td>{e.teacher.subject || '—'}</td>
+                      <td>{e.teacher.gradeLevel || '—'}</td>
+                      <td>
+                        {e.done ? (
+                          <span
+                            className="pill pill--green"
+                            title={
+                              e.doneAt
+                                ? `Marked done by ${e.doneBy || 'someone'} on ${formatDate(e.doneAt.slice(0, 10))}`
+                                : 'An observation was logged for this date'
+                            }
+                          >
+                            <span className="dot" />
+                            {e.doneAt ? 'Done' : 'Observed'}
+                          </span>
+                        ) : (
+                          <span className="muted small">Scheduled</span>
+                        )}
+                        {writable && doneSupported && !(e.done && !e.doneAt) && (
+                          <button
+                            className="btn btn--ghost btn--sm no-print"
+                            style={{ marginLeft: 6 }}
+                            onClick={() => toggleDone(e)}
+                            title={
+                              e.doneAt
+                                ? 'Un-mark this visit'
+                                : "Mark as visited without writing up a full observation"
+                            }
+                          >
+                            {e.doneAt ? 'Undo' : 'Done'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )),
                 ])}
               </tbody>
             </table>
