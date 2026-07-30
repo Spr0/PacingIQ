@@ -41,20 +41,38 @@ function escapeIcsText(text = '') {
     .replace(/\r?\n/g, '\\n');
 }
 
-// RFC 5545 caps a content line at 75 octets and continues it with CRLF + a
-// single space. Outlook is lenient about long lines, but a day's worth of
-// teacher names comfortably exceeds the limit and some importers do enforce
-// it, so fold properly rather than hoping.
+// RFC 5545 caps a content line at 75 OCTETS -- not characters -- and continues
+// it with CRLF + a single space. That distinction matters here: the separator
+// between a teacher's name and subject is an em dash, three bytes in UTF-8 but
+// one JavaScript character, so folding by string index produced lines of 84
+// bytes on real data while looking correct to a .length check. Fold on encoded
+// byte length instead, and iterate code points so a surrogate pair is never
+// split down the middle.
+const UTF8 = new TextEncoder();
+
+function byteLength(s) {
+  return UTF8.encode(s).length;
+}
+
 function foldIcsLine(line) {
-  if (line.length <= 75) return line;
-  const parts = [line.slice(0, 75)];
-  let rest = line.slice(75);
-  while (rest.length > 74) {
-    parts.push(` ${rest.slice(0, 74)}`);
-    rest = rest.slice(74);
+  if (byteLength(line) <= 75) return line;
+  const parts = [];
+  let cur = '';
+  let curBytes = 0;
+  let limit = 75; // continuation lines spend one octet on their leading space
+  for (const ch of line) {
+    const chBytes = byteLength(ch);
+    if (curBytes + chBytes > limit) {
+      parts.push(cur);
+      cur = '';
+      curBytes = 0;
+      limit = 74;
+    }
+    cur += ch;
+    curBytes += chBytes;
   }
-  if (rest.length) parts.push(` ${rest}`);
-  return parts.join('\r\n');
+  if (cur) parts.push(cur);
+  return parts.map((p, i) => (i === 0 ? p : ` ${p}`)).join('\r\n');
 }
 
 function stamp() {
