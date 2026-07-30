@@ -75,13 +75,6 @@ function check(label, error) {
 // AuthContext.jsx, which is what actually gates the app on this.
 // ---------------------------------------------------------------------------
 
-// The signed-in user's auth id, used to stamp ownership on records so
-// "edit only your own" can be enforced in RLS rather than just in the UI.
-export async function getMyUserId() {
-  const { data, error } = await supabase.auth.getUser();
-  check('getMyUserId', error);
-  return data?.user?.id || null;
-}
 
 export async function getSession() {
   const { data, error } = await supabase.auth.getSession();
@@ -146,21 +139,29 @@ export async function updateMyPassword(password) {
   check('mark_password_changed', rpcError);
 }
 
-export async function getMyProfile() {
+// `userId` MUST be passed by callers that run inside an onAuthStateChange
+// handler. supabase-js holds an internal navigator-lock while it dispatches
+// that callback, and any other auth call made from inside the callback waits
+// on the same lock -- so calling getUser() there deadlocks, the promise never
+// settles, and the caller's catch turns a perfectly good profile into "no
+// profile", i.e. an approved user intermittently seeing "Waiting on access".
+// The callback is already handed a session, so the id never needs fetching.
+// The getUser() fallback exists only for callers with no session in hand.
+export async function getMyProfile(userId) {
+  let id = userId;
+  if (!id) {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    check('getMyProfile (getUser)', authError);
+    if (!authData?.user) return null;
+    id = authData.user.id;
+  }
   // Must filter by id explicitly rather than relying on RLS to narrow this
   // to "just my row": profiles_select_all makes every profile visible once
-  // role is approved (coach/principal/ap need to see the roster of who has
-  // access), so an unfiltered select("*") returns every row post-approval
-  // and .maybeSingle() throws (PGRST116, "Cannot coerce ... to a single
-  // object") the moment more than one profile exists.
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  check('getMyProfile (getUser)', authError);
-  if (!authData?.user) return null;
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', authData.user.id)
-    .maybeSingle();
+  // role is approved (coach/principal/ap/abss need to see the roster of who
+  // has access), so an unfiltered select("*") returns every row
+  // post-approval and .maybeSingle() throws (PGRST116, "Cannot coerce ... to
+  // a single object") the moment more than one profile exists.
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
   check('getMyProfile', error);
   return rowToCamel(data);
 }

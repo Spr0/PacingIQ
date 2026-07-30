@@ -40,9 +40,13 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const loadProfile = useCallback(async () => {
+  // Always pass the id from the session we already hold: this runs inside the
+  // onAuthStateChange callback, where any nested supabase auth call would
+  // deadlock on the auth lock and leave an approved user stuck on the
+  // "Waiting on access" screen. See getMyProfile in data/store.js.
+  const loadProfile = useCallback(async (currentSession) => {
     try {
-      setProfile(await store.getMyProfile());
+      setProfile(await store.getMyProfile(currentSession?.user?.id));
     } catch {
       setProfile(null);
     }
@@ -62,7 +66,7 @@ export function AuthProvider({ children }) {
         const s = await withTimeout(store.getSession(), 8000);
         if (cancelled) return;
         setSession(s || null);
-        if (s) await loadProfile();
+        if (s) await loadProfile(s);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -71,7 +75,7 @@ export function AuthProvider({ children }) {
     const unsubscribe = store.onAuthStateChange(async (s) => {
       if (cancelled) return;
       setSession(s);
-      if (s) await loadProfile();
+      if (s) await loadProfile(s);
       else setProfile(null);
     });
 
@@ -83,7 +87,7 @@ export function AuthProvider({ children }) {
 
   const signIn = useCallback((email, password) => store.signInWithPassword(email, password), []);
   const signOut = useCallback(() => store.signOut(), []);
-  const refreshProfile = useCallback(() => loadProfile(), [loadProfile]);
+  const refreshProfile = useCallback(() => loadProfile(session), [loadProfile, session]);
 
   const value = { session, profile, loading, signIn, signOut, refreshProfile };
 
