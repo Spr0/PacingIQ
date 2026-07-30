@@ -21,7 +21,7 @@ function emptyGoal(teacherName) {
   return { id: null, title: '', notes: '', category: '', owner: teacherName || '', targetDate: '', status: 'Open' };
 }
 
-export default function Goals({ teacherId, teacherName, goals, db, writable }) {
+export default function Goals({ teacherId, teacherName, goals, db, writable, deletable }) {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(() => emptyGoal(teacherName));
   const [saveError, setSaveError] = useState(null);
@@ -174,9 +174,11 @@ export default function Goals({ teacherId, teacherName, goals, db, writable }) {
                           <button className="btn btn--ghost btn--sm" onClick={() => openEdit(g)}>
                             Edit
                           </button>
-                          <button className="btn btn--ghost btn--sm" onClick={() => deleteGoal(g)}>
-                            Delete
-                          </button>
+                          {deletable && (
+                            <button className="btn btn--ghost btn--sm" onClick={() => deleteGoal(g)}>
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </td>
                     )}

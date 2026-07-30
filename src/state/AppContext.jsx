@@ -29,14 +29,35 @@ const EMPTY_COLLECTIONS = {
   auditLog: [],
 };
 
+// Collections whose rows carry a created_by_id owner column, so inserts get
+// the author stamped automatically (see db.insert below). auditLog is
+// excluded on purpose: it already records the actor by name and is
+// append-only. schedule_entries is excluded because the rotation belongs to
+// the school, not to whoever pressed Randomize.
+const OWNED_COLLECTIONS = new Set([
+  'observations',
+  'pacingEntries',
+  'interventions',
+  'actionPlans',
+  'goals',
+]);
+
 export function AppProvider({ children }) {
   const { profile } = useAuth();
   const [state, setState] = useState(EMPTY_COLLECTIONS);
   const [loading, setLoading] = useState(true);
 
   const roleKey = profile.role;
+  // `id` is the auth user id (profiles.id references auth.users). Records are
+  // stamped with it on insert so "edit only your own" can be enforced in RLS
+  // rather than only in the UI -- see canEditRecord in lib/permissions.js.
   const user = useMemo(
-    () => ({ name: profile.name || profile.email, label: ROLE_LABELS[roleKey] || roleKey, initials: initialsOf(profile.name || profile.email) }),
+    () => ({
+      id: profile.id,
+      name: profile.name || profile.email,
+      label: ROLE_LABELS[roleKey] || roleKey,
+      initials: initialsOf(profile.name || profile.email),
+    }),
     [profile, roleKey]
   );
 
@@ -56,7 +77,14 @@ export function AppProvider({ children }) {
   const db = useMemo(
     () => ({
       async insert(collection, record, auditAction) {
-        const row = await store.insert(collection, record);
+        // Stamp the author automatically rather than at each call site, so a
+        // new insert can't accidentally ship unowned (and therefore
+        // uneditable-by-its-creator) rows. The matching RLS insert policy
+        // requires created_by_id = auth.uid(), so this can't be spoofed.
+        const stamped = OWNED_COLLECTIONS.has(collection)
+          ? { createdById: user.id, ...record }
+          : record;
+        const row = await store.insert(collection, stamped);
         if (auditAction) await store.logAudit(user, auditAction, describe(collection, row));
         await refresh();
         return row;

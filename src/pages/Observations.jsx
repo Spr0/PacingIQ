@@ -410,7 +410,7 @@ export default function Observations() {
       } else {
         await db.insert(
           'observations',
-          { ...form, createdBy: 'coach', sharedWithTeacher: { whole: false, sections: [] } },
+          { ...form, createdBy: user.name, sharedWithTeacher: { whole: false, sections: [] } },
           'created observation'
         );
       }

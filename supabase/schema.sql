@@ -9,7 +9,14 @@
 -- rewiring.
 --
 -- Run this once, in full, in the Supabase SQL Editor (Project > SQL Editor >
--- New query > paste > Run) on a fresh project.
+-- New query > paste > Run) on a fresh project, THEN run everything in
+-- supabase/migrations/ in filename order -- 002 is what opens create/edit to
+-- principal/AP/ABSS, adds record ownership, and restricts DELETE to coach.
+--
+-- Access model: email + password, per person, accounts created by hand in
+-- Authentication > Users > Add user > "Create new user" (NOT "Invite user",
+-- which sends an email and fails against district mail filtering). Every new
+-- sign-in lands on role 'pending' with no access until a role is assigned.
 -- ---------------------------------------------------------------------------
 
 create extension if not exists pgcrypto;
@@ -25,14 +32,16 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null,
   name text not null default '',
-  role text not null default 'pending' check (role in ('pending', 'coach', 'principal', 'ap')),
+  role text not null default 'pending'
+    constraint profiles_role_check check (role in ('pending', 'coach', 'principal', 'ap', 'abss')),
   created_at timestamptz not null default now()
 );
 
 -- Auto-create a profile row whenever someone signs in for the first time.
--- Anonymous sign-ins (the temporary no-email-friction path -- see
--- src/state/AuthContext.jsx) get 'coach' immediately, since nobody's there
--- to promote them by hand. Real email sign-ins still default to 'pending'.
+-- ALWAYS 'pending' (no access) until a role is assigned by hand -- there is
+-- deliberately no path that grants access automatically. An earlier version
+-- granted 'coach' to anonymous sign-ins, which meant anyone with the URL had
+-- full write and delete on real teacher records; see migrations/002.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -42,9 +51,9 @@ begin
   insert into public.profiles (id, email, name, role)
   values (
     new.id,
-    coalesce(new.email, 'anonymous'),
-    coalesce(new.raw_user_meta_data ->> 'name', new.email, 'Guest'),
-    case when new.is_anonymous then 'coach' else 'pending' end
+    coalesce(new.email, 'unknown'),
+    coalesce(new.raw_user_meta_data ->> 'name', new.email, 'New user'),
+    'pending'
   );
   return new;
 end;
@@ -67,7 +76,13 @@ create or replace function public.is_coach()
 returns boolean language sql stable as $$ select public.current_role() = 'coach'; $$;
 
 create or replace function public.can_view()
-returns boolean language sql stable as $$ select public.current_role() in ('coach', 'principal', 'ap'); $$;
+returns boolean language sql stable as $$ select public.current_role() in ('coach', 'principal', 'ap', 'abss'); $$;
+
+-- Create records and edit your own. Open to every assigned role: principals,
+-- APs, and ABSS log their own walkthroughs, notes, and action steps.
+-- Destructive operations are gated on is_coach() instead, not this.
+create or replace function public.can_write()
+returns boolean language sql stable as $$ select public.current_role() in ('coach', 'principal', 'ap', 'abss'); $$;
 
 create or replace function public.can_review()
 returns boolean language sql stable as $$ select public.current_role() in ('principal', 'ap'); $$;
@@ -79,16 +94,11 @@ create policy "profiles_select_all" on public.profiles for select using (public.
 -- that state undiagnosable from the client. RLS ORs select policies
 -- together, so this just adds "or it's your own row" on top.
 create policy "profiles_select_own" on public.profiles for select using (auth.uid() = id);
--- Anonymous sessions (the temporary no-friction path) can self-promote
--- their own row to 'coach', so a profile that predates the
--- handle_new_user trigger's auto-grant -- or any other gap -- doesn't
--- stay stuck pending until a coach manually fixes it in the dashboard.
--- Real (non-anonymous) users get no update/insert/delete policy: role
--- changes for them still happen only via the Supabase dashboard.
-create policy "profiles_anon_self_promote" on public.profiles
-  for update
-  using (auth.uid() = id and (auth.jwt() ->> 'is_anonymous')::boolean is true)
-  with check (auth.uid() = id and (auth.jwt() ->> 'is_anonymous')::boolean is true and role = 'coach');
+-- NOTE: there is intentionally NO update/insert/delete policy on profiles.
+-- Role changes happen only in the Supabase dashboard, so the app can never
+-- be used to escalate your own access. (An earlier build had a
+-- profiles_anon_self_promote policy letting anonymous sessions promote
+-- themselves to 'coach' -- that was the security hole migrations/002 closes.)
 
 -- ---------------------------------------------------------------------------
 -- teachers

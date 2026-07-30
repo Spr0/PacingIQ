@@ -1,5 +1,12 @@
 // ---------------------------------------------------------------------------
-// Magic-link sign-in screen, shown whenever there's no Supabase session.
+// Email + password sign-in, shown whenever there's no Supabase session.
+//
+// Deliberately no "Forgot password?" link and no self-signup: district email
+// filtering blocks Supabase's outbound mail (it's what killed the earlier
+// magic-link flow, and why "Invite user" fails in the dashboard), so any
+// flow that depends on an email arriving would dead-end. A locked-out user
+// gets a new password set for them in the Supabase dashboard instead --
+// see the runbook note in supabase/schema.sql.
 // ---------------------------------------------------------------------------
 
 import { useState } from 'react';
@@ -9,21 +16,23 @@ import { Brandmark } from './icons.jsx';
 export default function SignIn() {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
-  const [sent, setSent] = useState(false);
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(e) {
     e.preventDefault();
     const trimmed = email.trim();
-    if (!trimmed) return;
+    if (!trimmed || !password || busy) return;
     setBusy(true);
     setError('');
     try {
-      await signIn(trimmed);
-      setSent(true);
+      await signIn(trimmed, password);
+      // On success the onAuthStateChange listener in AuthContext swaps this
+      // screen out, so there's nothing to do here.
     } catch (err) {
-      setError(err.message || 'Could not send the sign-in link. Try again.');
+      setError(err.message || 'Could not sign in. Check your email and password.');
+      setPassword('');
     } finally {
       setBusy(false);
     }
@@ -36,33 +45,39 @@ export default function SignIn() {
           <Brandmark />
         </span>
         <h1>Sierra Rams Coaching Intelligence</h1>
-        {sent ? (
-          <>
-            <p className="muted">
-              Check <strong>{email}</strong> for a sign-in link. It's safe to close this tab.
+        <form onSubmit={submit} className="stack">
+          <p className="muted">Sign in with your school email and password.</p>
+          <input
+            className="input"
+            type="email"
+            required
+            autoFocus
+            autoComplete="username"
+            placeholder="you@susd12.org"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            className="input"
+            type="password"
+            required
+            autoComplete="current-password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {error && (
+            <p className="muted small" style={{ color: 'var(--red-600)' }}>
+              {error}
             </p>
-            <button className="btn btn--ghost btn--sm" onClick={() => setSent(false)}>
-              Use a different email
-            </button>
-          </>
-        ) : (
-          <form onSubmit={submit} className="stack">
-            <p className="muted">Sign in with your email — no password needed.</p>
-            <input
-              className="input"
-              type="email"
-              required
-              autoFocus
-              placeholder="you@school.org"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            {error && <p className="muted small" style={{ color: 'var(--red)' }}>{error}</p>}
-            <button className="btn btn--primary" type="submit" disabled={busy || !email.trim()}>
-              {busy ? 'Sending link…' : 'Send sign-in link'}
-            </button>
-          </form>
-        )}
+          )}
+          <button className="btn btn--primary" type="submit" disabled={busy || !email.trim() || !password}>
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+          <p className="muted small" style={{ margin: 0 }}>
+            Need access or forgot your password? Contact your instructional coach.
+          </p>
+        </form>
       </div>
     </div>
   );

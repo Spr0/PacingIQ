@@ -29,7 +29,7 @@ function emptyTemplateStep() {
 const EMPTY_PLAN_FORM = { id: null, title: '', templateId: '', source: 'custom', steps: [emptyStep()] };
 const EMPTY_TEMPLATE_FORM = { id: null, title: '', category: '', description: '', steps: [emptyTemplateStep()] };
 
-export default function ActionPlans({ teacherId, plans, templates, db, writable }) {
+export default function ActionPlans({ teacherId, plans, templates, db, writable, deletable }) {
   const [planModal, setPlanModal] = useState(false);
   const [planForm, setPlanForm] = useState(EMPTY_PLAN_FORM);
   const [planSaveError, setPlanSaveError] = useState(null);
@@ -257,9 +257,11 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
                       <button className="btn btn--ghost btn--sm" onClick={() => openEditTemplate(tpl)}>
                         Edit
                       </button>
-                      <button className="btn btn--ghost btn--sm" onClick={() => deleteTemplate(tpl)}>
-                        Delete
-                      </button>
+                      {deletable && (
+                        <button className="btn btn--ghost btn--sm" onClick={() => deleteTemplate(tpl)}>
+                          Delete
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -303,9 +305,11 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable 
                         <button className="btn btn--ghost btn--sm" onClick={() => openEditPlan(plan)}>
                           Edit
                         </button>
-                        <button className="btn btn--ghost btn--sm" onClick={() => deletePlan(plan)}>
-                          Delete
-                        </button>
+                        {deletable && (
+                          <button className="btn btn--ghost btn--sm" onClick={() => deletePlan(plan)}>
+                            Delete
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

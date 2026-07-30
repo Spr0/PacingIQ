@@ -75,6 +75,14 @@ function check(label, error) {
 // AuthContext.jsx, which is what actually gates the app on this.
 // ---------------------------------------------------------------------------
 
+// The signed-in user's auth id, used to stamp ownership on records so
+// "edit only your own" can be enforced in RLS rather than just in the UI.
+export async function getMyUserId() {
+  const { data, error } = await supabase.auth.getUser();
+  check('getMyUserId', error);
+  return data?.user?.id || null;
+}
+
 export async function getSession() {
   const { data, error } = await supabase.auth.getSession();
   check('getSession', error);
@@ -86,44 +94,31 @@ export function onAuthStateChange(callback) {
   return () => data.subscription.unsubscribe();
 }
 
-export async function signInWithEmail(email) {
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.origin },
-  });
-  check('signInWithEmail', error);
-}
-
-// Temporary no-friction access path: signs in as an anonymous Supabase user
-// with no email step at all. Requires "Allow anonymous sign-ins" enabled in
-// Supabase (Authentication > Sign In / Providers) and the handle_new_user
-// trigger's is_anonymous branch (see supabase/schema.sql) to grant it a
-// working role automatically -- otherwise it lands on the same pending
-// screen a real sign-in would. To restore real access control later: turn
-// the provider back off and stop calling this from AuthContext.
-export async function signInAnonymously() {
-  const { data, error } = await supabase.auth.signInAnonymously();
-  check('signInAnonymously', error);
+// Email + password is the only sign-in path. Chosen over magic links
+// because district email filtering blocked link delivery entirely (and
+// Supabase's built-in mailer only reliably reaches project team members),
+// so nothing in the login flow depends on an email arriving. Accounts are
+// provisioned by hand in the Supabase dashboard (Authentication > Users >
+// Add user > Create new user, with Auto Confirm checked) and given a role
+// via the migration SQL in supabase/schema.sql -- there is deliberately no
+// self-signup and no in-app way to grant yourself a role.
+export async function signInWithPassword(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) {
+    // Supabase returns the same "Invalid login credentials" whether the
+    // password is wrong or no such account exists -- keep that ambiguity
+    // (it stops the form being used to discover who has an account) but
+    // phrase it for a person, without the internal function label check()
+    // would prefix, and with the one instruction that actually helps here.
+    if (/invalid login credentials/i.test(error.message)) {
+      throw new Error('That email and password do not match. Contact your instructional coach if you need access.');
+    }
+    if (/email not confirmed/i.test(error.message)) {
+      throw new Error('This account has not been confirmed yet. Ask your instructional coach to confirm it.');
+    }
+    throw new Error(error.message);
+  }
   return data.session;
-}
-
-// Self-heals a stuck-pending anonymous profile instead of waiting on a
-// coach to fix it by hand -- covers both a profile created before the
-// handle_new_user trigger granted 'coach' automatically, and any other gap
-// between them. No-op (and harmless) if the caller isn't anonymous or is
-// already past pending; the anon_self_promote RLS policy is what actually
-// restricts this to a user's own row.
-export async function selfPromoteIfAnonymous() {
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData?.user?.is_anonymous) return null;
-  const { data, error } = await supabase
-    .from('profiles')
-    .update({ role: 'coach' })
-    .eq('id', authData.user.id)
-    .select()
-    .maybeSingle();
-  check('selfPromoteIfAnonymous', error);
-  return rowToCamel(data);
 }
 
 export async function signOut() {

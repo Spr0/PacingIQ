@@ -3,13 +3,12 @@
 // (name + role from the `profiles` table). Wraps AppProvider, which only
 // ever renders once there's a session and an approved (non-pending) role.
 //
-// TEMPORARY: auto-signs in anonymously when there's no session, so nobody
-// has to get a magic-link email at all -- district network/email filtering
-// was blocking that path for at least one user. This trades away per-person
-// login entirely (see the AskUserQuestion this was chosen over in the
-// conversation this shipped from). To restore real sign-in: delete the
-// signInAnonymously() call+effect below, and turn "Allow anonymous
-// sign-ins" back off in Supabase.
+// Sign-in is email + password, per person. This replaced a temporary
+// anonymous auto-signin (which handed every visitor a 'coach' role) and,
+// before that, magic links -- district email filtering blocked link
+// delivery, so nothing here depends on an email arriving. Accounts are
+// created by hand in the Supabase dashboard; a signed-in user with no
+// assigned role is 'pending' and sees PendingApproval, not the app.
 // ---------------------------------------------------------------------------
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
@@ -41,17 +40,9 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Self-heals a stuck-pending (or unreadable-because-pending) anonymous
-  // profile instead of leaving it for a coach to fix by hand -- covers a
-  // profile created before the auto-grant trigger existed, and any other
-  // gap between sign-in and the row being 'coach'.
-  const loadProfile = useCallback(async (currentSession) => {
+  const loadProfile = useCallback(async () => {
     try {
-      let p = await store.getMyProfile();
-      if (currentSession?.user?.is_anonymous && (!p || p.role === 'pending')) {
-        p = (await store.selfPromoteIfAnonymous()) || (await store.getMyProfile());
-      }
-      setProfile(p);
+      setProfile(await store.getMyProfile());
     } catch {
       setProfile(null);
     }
@@ -62,28 +53,16 @@ export function AuthProvider({ children }) {
 
     (async () => {
       try {
-        // getSession() has no .catch below it and can also hang instead of
-        // settling at all (a known supabase-js issue around its cross-tab
-        // auth lock) -- either way `loading` was never coming back down,
-        // which left the app on `if (loading) return null` in App.jsx
-        // permanently blank until a refresh happened to dodge the race.
-        // Racing it against a timeout bounds the hang; the try/finally
-        // below covers the plain-rejection case.
-        let s = await withTimeout(store.getSession(), 8000);
+        // getSession() can reject, and can also hang instead of settling at
+        // all (a known supabase-js issue around its cross-tab auth lock).
+        // Either way `loading` never came back down, which left the app on
+        // `if (loading) return null` in App.jsx permanently blank until a
+        // refresh happened to dodge the race. Racing it against a timeout
+        // bounds the hang; the try/finally covers a plain rejection.
+        const s = await withTimeout(store.getSession(), 8000);
         if (cancelled) return;
-        if (!s) {
-          // No friction: sign in anonymously instead of showing SignIn. If
-          // the Supabase provider isn't enabled yet this just fails quietly
-          // and SignIn renders as a fallback -- nothing breaks either way.
-          try {
-            s = await store.signInAnonymously();
-          } catch {
-            // fall through to SignIn below
-          }
-        }
-        if (cancelled) return;
-        setSession(s);
-        if (s) await loadProfile(s);
+        setSession(s || null);
+        if (s) await loadProfile();
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -92,7 +71,7 @@ export function AuthProvider({ children }) {
     const unsubscribe = store.onAuthStateChange(async (s) => {
       if (cancelled) return;
       setSession(s);
-      if (s) await loadProfile(s);
+      if (s) await loadProfile();
       else setProfile(null);
     });
 
@@ -102,9 +81,9 @@ export function AuthProvider({ children }) {
     };
   }, [loadProfile]);
 
-  const signIn = useCallback((email) => store.signInWithEmail(email), []);
+  const signIn = useCallback((email, password) => store.signInWithPassword(email, password), []);
   const signOut = useCallback(() => store.signOut(), []);
-  const refreshProfile = useCallback(() => loadProfile(session), [loadProfile, session]);
+  const refreshProfile = useCallback(() => loadProfile(), [loadProfile]);
 
   const value = { session, profile, loading, signIn, signOut, refreshProfile };
 

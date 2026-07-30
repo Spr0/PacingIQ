@@ -57,6 +57,9 @@ export default function TeacherDetail() {
   } = useApp();
   const rollup = rollupFor(id);
   const writable = can(roleKey, 'write');
+  // Creating is open to every real role; deleting is coach-only, so the two
+  // gates are threaded separately into the tabs below.
+  const deletable = can(roleKey, 'delete');
 
   const [tab, setTab] = useState('Overview');
   const [aiOpen, setAiOpen] = useState(false);
@@ -272,7 +275,14 @@ export default function TeacherDetail() {
       {tab === 'Assessments' && <AssessmentsTab assessments={myAssessments} />}
       {tab === 'Interventions' && <InterventionsTab interventions={myInterventions} />}
       {tab === 'Goals' && (
-        <Goals teacherId={id} teacherName={teacher.name} goals={myGoals} db={db} writable={writable} />
+        <Goals
+          teacherId={id}
+          teacherName={teacher.name}
+          goals={myGoals}
+          db={db}
+          writable={writable}
+          deletable={deletable}
+        />
       )}
       {tab === 'Action Plans' && (
         <ActionPlans
@@ -281,6 +291,7 @@ export default function TeacherDetail() {
           templates={actionPlanTemplates}
           db={db}
           writable={writable}
+          deletable={deletable}
         />
       )}
       {tab === 'Coaching Notes' && (
@@ -851,6 +862,7 @@ function emptyNoteForm() {
 // blank. It appears here immediately, and also as a bare-bones row on the
 // Observations tab, since that's the same underlying record.
 function CoachingNotesTab({ observations, teacherId, db, writable }) {
+  const { user } = useApp();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyNoteForm);
   const [saveError, setSaveError] = useState(null);
@@ -892,7 +904,7 @@ function CoachingNotesTab({ observations, teacherId, db, writable }) {
           strengths: form.strengths.trim(),
           areasForGrowth: form.areasForGrowth.trim(),
           feedbackProvided: form.feedbackProvided.trim(),
-          createdBy: 'coach',
+          createdBy: user.name,
           sharedWithTeacher: { whole: false, sections: [] },
         },
         'added coaching note'
