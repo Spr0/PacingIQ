@@ -3,6 +3,7 @@ import { useAuth } from './state/AuthContext.jsx';
 import { AppProvider } from './state/AppContext.jsx';
 import Layout from './components/Layout.jsx';
 import SignIn from './components/SignIn.jsx';
+import SetPassword from './components/SetPassword.jsx';
 import PendingApproval from './components/PendingApproval.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Teachers from './pages/Teachers.jsx';
@@ -21,6 +22,10 @@ export default function App() {
   if (loading) return null; // avoid a sign-in flash while the session check resolves
   if (!session) return <SignIn />;
   if (!profile || profile.role === 'pending') return <PendingApproval />;
+  // Accounts are provisioned by hand with a temporary password, so the app
+  // stays shut until the holder replaces it with one only they know. Checked
+  // after the role gate so a pending user sees why they're waiting first.
+  if (profile.mustChangePassword) return <SetPassword />;
 
   return (
     <AppProvider>

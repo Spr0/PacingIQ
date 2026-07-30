@@ -126,6 +126,26 @@ export async function signOut() {
   check('signOut', error);
 }
 
+// Sets a new password for the already-signed-in user and clears the
+// must_change_password flag. No email round-trip is involved, which is the
+// whole point -- district mail filtering makes Supabase's own reset flow
+// unusable here (see SetPassword.jsx).
+//
+// The flag is cleared through an RPC rather than a direct profiles update:
+// an RLS policy permissive enough to let someone patch their own profile row
+// would also let them edit their own `role`. See migrations/003.
+export async function updateMyPassword(password) {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) {
+    // Supabase enforces the project's password policy here (length,
+    // character classes, and a breached-password check if enabled), so its
+    // message is the useful one to show.
+    throw new Error(error.message);
+  }
+  const { error: rpcError } = await supabase.rpc('mark_password_changed');
+  check('mark_password_changed', rpcError);
+}
+
 export async function getMyProfile() {
   // Must filter by id explicitly rather than relying on RLS to narrow this
   // to "just my row": profiles_select_all makes every profile visible once
