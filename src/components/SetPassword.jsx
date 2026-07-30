@@ -17,6 +17,32 @@ import { Brandmark } from './icons.jsx';
 
 const MIN_LENGTH = 10;
 
+// Shown up front and ticked off live, rather than only scolding after a failed
+// attempt: the submit button is disabled until every rule passes, and a
+// disabled button with no stated reason is just a dead end.
+//
+// These mirror Supabase's own password policy (Authentication > Sign In /
+// Providers > Email). Supabase re-checks server-side, and its message is
+// surfaced verbatim below if it disagrees -- so if the project policy is ever
+// tightened beyond this list, the user still learns why instead of seeing an
+// all-green checklist and an unexplained refusal.
+const RULES = [
+  { id: 'length', label: `At least ${MIN_LENGTH} characters`, test: (p) => p.length >= MIN_LENGTH },
+  { id: 'case', label: 'An uppercase and a lowercase letter', test: (p) => /[a-z]/.test(p) && /[A-Z]/.test(p) },
+  { id: 'digit', label: 'At least one number', test: (p) => /\d/.test(p) },
+];
+
+function Rule({ met, children }) {
+  return (
+    <li>
+      <span className={`check ${met ? 'check--done' : 'check--todo'}`} aria-hidden="true">
+        {met ? '✓' : ''}
+      </span>
+      <span style={{ color: met ? 'var(--text-strong)' : 'var(--text-muted)' }}>{children}</span>
+    </li>
+  );
+}
+
 export default function SetPassword() {
   const { profile, signOut, refreshProfile } = useAuth();
   const [password, setPassword] = useState('');
@@ -24,11 +50,10 @@ export default function SetPassword() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  // Client-side checks are for fast feedback only; Supabase enforces the
-  // project's real password policy server-side in updateUser().
-  const tooShort = password.length > 0 && password.length < MIN_LENGTH;
-  const mismatch = confirm.length > 0 && password !== confirm;
-  const ready = password.length >= MIN_LENGTH && password === confirm && !busy;
+  const checks = RULES.map((r) => ({ ...r, met: r.test(password) }));
+  const matches = password.length > 0 && password === confirm;
+  const allMet = checks.every((c) => c.met) && matches;
+  const ready = allMet && !busy;
 
   async function submit(e) {
     e.preventDefault();
@@ -68,9 +93,10 @@ export default function SetPassword() {
             required
             autoFocus
             autoComplete="new-password"
-            placeholder={`New password (at least ${MIN_LENGTH} characters)`}
+            placeholder="New password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            aria-describedby="pw-rules"
           />
           <input
             className="input"
@@ -81,16 +107,16 @@ export default function SetPassword() {
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
           />
-          {tooShort && (
-            <p className="muted small" style={{ margin: 0 }}>
-              Use at least {MIN_LENGTH} characters.
-            </p>
-          )}
-          {mismatch && (
-            <p className="small" style={{ color: 'var(--red-600)', margin: 0 }}>
-              The two passwords don't match.
-            </p>
-          )}
+
+          <ul className="checklist" id="pw-rules" style={{ marginTop: 2 }}>
+            {checks.map((c) => (
+              <Rule key={c.id} met={c.met}>
+                {c.label}
+              </Rule>
+            ))}
+            <Rule met={matches}>Both entries match</Rule>
+          </ul>
+
           {error && (
             <p className="small" style={{ color: 'var(--red-600)', margin: 0 }}>
               {error}
