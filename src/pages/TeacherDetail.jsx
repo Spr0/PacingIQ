@@ -9,7 +9,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { pacingStatus, recommendedAction, isOverdue } from '../lib/intelligence.js';
 import { formatDate, daysUntil, isoDate } from '../lib/dates.js';
-import { can } from '../lib/permissions.js';
+import { can, canEditRecord, canDeleteRecord } from '../lib/permissions.js';
 import {
   Card,
   StatusBadge,
@@ -861,30 +861,85 @@ function emptyNoteForm() {
 // everything classroom-visit-specific (lesson, standard, engagement) left
 // blank. It appears here immediately, and also as a bare-bones row on the
 // Observations tab, since that's the same underlying record.
+// One observation row can hold up to three notes -- a strength, an area for
+// growth, and feedback -- so each line here maps to one FIELD of one row, and
+// editing a note is an update to that field rather than to a whole record.
+const NOTE_FIELDS = [
+  { field: 'strengths', suffix: 's', kind: 'Strength' },
+  { field: 'areasForGrowth', suffix: 'g', kind: 'Area for growth' },
+  { field: 'feedbackProvided', suffix: 'f', kind: 'Feedback' },
+];
+
 function CoachingNotesTab({ observations, teacherId, db, writable }) {
-  const { user } = useApp();
+  const { user, roleKey } = useApp();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyNoteForm);
   const [saveError, setSaveError] = useState(null);
   const [saving, setSaving] = useState(false);
+  // { obsId, field, kind, text } while a single note is being edited in place.
+  const [editing, setEditing] = useState(null);
+  const [rowError, setRowError] = useState(null);
 
   const notes = useMemo(() => {
     const out = [];
     observations.forEach((o) => {
       const shared = !!o.sharedWithTeacher?.whole;
-      if (o.strengths) out.push({ id: `${o.id}-s`, date: o.date, kind: 'Strength', text: o.strengths, shared });
-      if (o.areasForGrowth)
-        out.push({ id: `${o.id}-g`, date: o.date, kind: 'Area for growth', text: o.areasForGrowth, shared });
-      if (o.feedbackProvided)
-        out.push({ id: `${o.id}-f`, date: o.date, kind: 'Feedback', text: o.feedbackProvided, shared });
+      NOTE_FIELDS.forEach(({ field, suffix, kind }) => {
+        if (!o[field]) return;
+        out.push({
+          id: `${o.id}-${suffix}`,
+          obsId: o.id,
+          field,
+          kind,
+          text: o[field],
+          date: o.date,
+          shared,
+          author: o.createdBy,
+          // Who may change it: the author, or any coach. Mirrors the RLS
+          // policy on observations so the buttons match what the database
+          // will actually allow.
+          mine: canEditRecord(roleKey, user.id, o),
+        });
+      });
     });
     return out.sort((a, b) => (a.date < b.date ? 1 : -1));
-  }, [observations]);
+  }, [observations, roleKey, user.id]);
 
   function openNew() {
     setForm(emptyNoteForm());
     setSaveError(null);
     setOpen(true);
+  }
+
+  async function saveEdit() {
+    if (!editing || !editing.text.trim() || saving) return;
+    setSaving(true);
+    setRowError(null);
+    try {
+      await db.update('observations', editing.obsId, { [editing.field]: editing.text.trim() }, 'edited coaching note');
+      setEditing(null);
+    } catch (err) {
+      setRowError(err.message || 'Could not save that change.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Clearing the field removes the note from this list without destroying the
+  // observation row, which may carry evidence, action items, and attachments
+  // that have nothing to do with this one line of text.
+  async function deleteNote(note) {
+    if (saving) return;
+    if (!window.confirm(`Delete this ${note.kind.toLowerCase()} note? The rest of the observation is kept.`)) return;
+    setSaving(true);
+    setRowError(null);
+    try {
+      await db.update('observations', note.obsId, { [note.field]: '' }, 'deleted coaching note');
+    } catch (err) {
+      setRowError(err.message || 'Could not delete that note.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function canSave() {
@@ -933,6 +988,7 @@ function CoachingNotesTab({ observations, teacherId, db, writable }) {
         Coaching notes are visible to coach, principal, and assistant principals. Nothing is shared
         with the teacher automatically.
       </p>
+      {rowError && <div className="banner banner--danger mb-2">{rowError}</div>}
       {notes.length === 0 ? (
         <Empty icon="📝">No coaching notes captured yet.</Empty>
       ) : (
@@ -947,8 +1003,55 @@ function CoachingNotesTab({ observations, teacherId, db, writable }) {
                 ) : (
                   <Badge tone="neutral">Not shared</Badge>
                 )}
+                {/* Whose note it is, so nobody has to guess why they can't
+                    change one -- and so the audit trail is visible in place. */}
+                {n.author && <span className="small muted">{n.mine ? `${n.author} · yours to edit` : n.author}</span>}
               </div>
-              <div>{n.text}</div>
+
+              {editing && editing.obsId === n.obsId && editing.field === n.field ? (
+                <div className="stack" style={{ gap: 8 }}>
+                  <textarea
+                    className="textarea"
+                    value={editing.text}
+                    autoFocus
+                    onChange={(e) => setEditing({ ...editing, text: e.target.value })}
+                  />
+                  <div className="row" style={{ gap: 8 }}>
+                    <button
+                      className="btn btn--primary btn--sm"
+                      onClick={saveEdit}
+                      disabled={saving || !editing.text.trim()}
+                    >
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button className="btn btn--ghost btn--sm" onClick={() => setEditing(null)} disabled={saving}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div>{n.text}</div>
+                  {n.mine && (
+                    <div className="row" style={{ gap: 6, marginTop: 6 }}>
+                      <button
+                        className="btn btn--ghost btn--sm"
+                        onClick={() => {
+                          setRowError(null);
+                          setEditing({ obsId: n.obsId, field: n.field, kind: n.kind, text: n.text });
+                        }}
+                      >
+                        Edit
+                      </button>
+                      {canDeleteRecord(roleKey) && (
+                        <button className="btn btn--ghost btn--sm" onClick={() => deleteNote(n)} disabled={saving}>
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
             </li>
           ))}
         </ul>

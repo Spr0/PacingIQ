@@ -10,7 +10,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
-import { can } from '../lib/permissions.js';
+import { can, canEditRecord } from '../lib/permissions.js';
 import { formatDate, isoDate } from '../lib/dates.js';
 import {
   MAX_ATTACHMENT_BYTES,
@@ -550,7 +550,10 @@ export default function Observations() {
                       <button className="btn btn--sm btn--ghost" onClick={() => setViewId(o.id)}>
                         View
                       </button>
-                      {writable && (
+                      {/* Ownership, not just write access: a principal seeing
+                          Edit on someone else's observation only to have the
+                          save refused by RLS is worse than not offering it. */}
+                      {canEditRecord(roleKey, user.id, o) && (
                         <button className="btn btn--sm btn--ghost" onClick={() => openEdit(o)}>
                           Edit
                         </button>

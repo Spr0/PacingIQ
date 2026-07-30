@@ -207,6 +207,17 @@ export async function update(collection, id, patch) {
     .eq('id', id)
     .select()
     .single();
+  // An RLS update policy that refuses doesn't raise -- it simply matches no
+  // rows, and .single() then fails with PGRST116. Left raw, the person editing
+  // someone else's record sees "Cannot coerce the result to a single JSON
+  // object", which tells them nothing. The UI should already have hidden the
+  // control (see canEditRecord in lib/permissions.js); this is the backstop
+  // for the paths it doesn't, and for a row deleted by someone else mid-edit.
+  if (error && (error.code === 'PGRST116' || /coerce the result/i.test(error.message || ''))) {
+    throw new Error(
+      'You can only change records you created — this one belongs to someone else, or it no longer exists. Ask a coach if it needs changing.'
+    );
+  }
   check(`update(${collection})`, error);
   return rowToCamel(data);
 }
