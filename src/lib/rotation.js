@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { today, parse, isoDate } from './dates.js';
+import { isRealObservation } from './intelligence.js';
 
 export const CYCLE_WEEKDAYS = 10; // two school weeks
 export const PER_DAY_CAP = 8; // most visits we'd ask of one day
@@ -82,12 +83,16 @@ export function buildCycleEntries(teachers, startDate) {
   return entries;
 }
 
-// A scheduled visit counts as done when it was ticked off by hand OR an
-// observation exists for that teacher on that date. Deriving the second half
-// means writing up an observation ticks the box with no extra step.
+// A scheduled visit counts as done when it was ticked off by hand OR a real
+// classroom observation exists for that teacher on that date. Deriving the
+// second half means writing up an observation ticks the box with no extra
+// step -- but only a visit counts: a coaching note shares the observations
+// table and would otherwise mark a classroom as visited from someone's desk.
 export function isEntryDone(entry, observations) {
   if (entry.doneAt) return true;
-  return observations.some((o) => o.teacherId === entry.teacherId && o.date === entry.scheduledDate);
+  return observations.some(
+    (o) => o.teacherId === entry.teacherId && o.date === entry.scheduledDate && isRealObservation(o)
+  );
 }
 
 // Groups stored entries into days, then days into cycles of CYCLE_WEEKDAYS.

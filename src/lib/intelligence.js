@@ -78,10 +78,20 @@ export function gradeRank(gradeLevel) {
   return match ? Number(match[0]) : null;
 }
 
-// Most recent observation for a teacher (by date).
+// A coaching note lives in the same table as a classroom observation (see
+// supabase/migrations/005), and only a real visit counts as having seen a
+// teacher. Without this filter, a note typed at a desk set the teacher's
+// "last seen" date and satisfied the 14-day window -- reporting a visit that
+// never happened, which is the one thing this app exists to measure.
+// Rows predating the kind column were classified by the migration's backfill.
+export function isRealObservation(o) {
+  return o.kind !== 'note';
+}
+
+// Most recent classroom observation for a teacher (by date). Notes excluded.
 export function latestObservation(teacherId, observations) {
   return observations
-    .filter((o) => o.teacherId === teacherId)
+    .filter((o) => o.teacherId === teacherId && isRealObservation(o))
     .sort((a, b) => (a.date < b.date ? 1 : -1))[0] || null;
 }
 

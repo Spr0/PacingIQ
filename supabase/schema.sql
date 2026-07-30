@@ -185,6 +185,11 @@ create table public.observations (
   action_items jsonb not null default '[]',
   attachments jsonb not null default '[]',
   created_by text,
+  created_by_id uuid references auth.users(id) on delete set null,
+  -- 'observation' = a real classroom visit; 'note' = a coaching note written
+  -- outside a visit. Only an observation counts toward the 14-day seen window,
+  -- the risk score, or ticking off a scheduled visit -- see migrations/005.
+  kind text not null constraint observations_kind_check check (kind in ('observation', 'note')),
   shared_with_teacher jsonb not null default '{"whole": false, "sections": []}',
   created_at timestamptz not null default now()
 );

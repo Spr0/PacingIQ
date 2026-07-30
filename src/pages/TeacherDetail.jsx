@@ -960,6 +960,9 @@ function CoachingNotesTab({ observations, teacherId, db, writable }) {
           areasForGrowth: form.areasForGrowth.trim(),
           feedbackProvided: form.feedbackProvided.trim(),
           createdBy: user.name,
+          // A note is not a classroom visit: kind keeps it out of the 14-day
+          // compliance window, the risk score, and the observation rotation.
+          kind: 'note',
           sharedWithTeacher: { whole: false, sections: [] },
         },
         'added coaching note'

@@ -10,8 +10,9 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
-import { can, canEditRecord } from '../lib/permissions.js';
+import { can, canEditRecord, canDeleteRecord } from '../lib/permissions.js';
 import { formatDate, isoDate } from '../lib/dates.js';
+import { isRealObservation } from '../lib/intelligence.js';
 import {
   MAX_ATTACHMENT_BYTES,
   ALLOWED_ATTACHMENT_TYPES,
@@ -167,6 +168,7 @@ export default function Observations() {
   const [removedKeys, setRemovedKeys] = useState([]);
 
   const [viewId, setViewId] = useState(null);
+  const [listError, setListError] = useState(null);
   const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
 
   function toggleSort(key) {
@@ -251,6 +253,11 @@ export default function Observations() {
       return (av < bv ? -1 : av > bv ? 1 : 0) * dir;
     };
     return observations
+      // Coaching notes share this table but belong on the teacher's Coaching
+      // Notes tab: they have no lesson, engagement, or evidence, so they'd
+      // render as near-empty rows here and make the list of actual classroom
+      // visits harder to read.
+      .filter(isRealObservation)
       .filter((o) => (teacherFilter === 'all' ? true : o.teacherId === teacherFilter))
       .filter((o) => (engagementFilter === 'all' ? true : o.engagementLevel === engagementFilter))
       .slice()
@@ -396,6 +403,22 @@ export default function Observations() {
     return !!form.teacherId && !!form.date;
   }
 
+  // Coach-only. Confirmed by name and date because this is not recoverable
+  // from the UI, and its attachments go with it -- the blobs are deleted here
+  // rather than orphaned in storage with no record pointing at them.
+  async function removeObservation(o) {
+    const who = teacherName(o.teacherId);
+    if (!window.confirm(`Delete the observation for ${who} on ${formatDate(o.date)}? This cannot be undone.`)) return;
+    setListError(null);
+    try {
+      await db.remove('observations', o.id, 'deleted observation');
+      (o.attachments || []).forEach((a) => a.key && deleteAttachment(a.key));
+      if (viewId === o.id) setViewId(null);
+    } catch (err) {
+      setListError(err.message || 'Could not delete that observation.');
+    }
+  }
+
   // Awaited (unlike a fire-and-forget db call) so a failed write -- a bad
   // value Postgres rejects, a dropped connection -- surfaces as an error the
   // user can see and keeps the form open with their notes intact, instead of
@@ -410,7 +433,7 @@ export default function Observations() {
       } else {
         await db.insert(
           'observations',
-          { ...form, createdBy: user.name, sharedWithTeacher: { whole: false, sections: [] } },
+          { ...form, createdBy: user.name, kind: 'observation', sharedWithTeacher: { whole: false, sections: [] } },
           'created observation'
         );
       }
@@ -508,6 +531,8 @@ export default function Observations() {
         </span>
       </div>
 
+      {listError && <div className="banner banner--danger mb-2">{listError}</div>}
+
       <Card title="All observations" count={rows.length} flush>
         {rows.length === 0 ? (
           <Empty icon="👁">No observations match the current filters.</Empty>
@@ -556,6 +581,15 @@ export default function Observations() {
                       {canEditRecord(roleKey, user.id, o) && (
                         <button className="btn btn--sm btn--ghost" onClick={() => openEdit(o)}>
                           Edit
+                        </button>
+                      )}
+                      {/* Until now the app could create an observation but
+                          never remove one, for any role -- a wrong entry meant
+                          editing the database by hand. Coach-only, per the
+                          delete rule, and matching the RLS policy. */}
+                      {canDeleteRecord(roleKey) && (
+                        <button className="btn btn--sm btn--ghost" onClick={() => removeObservation(o)}>
+                          Delete
                         </button>
                       )}
                       {writable && (
