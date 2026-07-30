@@ -369,6 +369,20 @@ h1, h2, h3, h4, h5 {
 .table td.schedule-daybar { background: var(--surface-sunken); font-weight: var(--fw-bold); color: var(--text-strong); padding-top: 8px; padding-bottom: 8px; }
 .table tbody tr:has(td.schedule-daybar):hover { background: var(--surface-sunken); }
 
+/* ---------- AI draft review table ----------
+   Wide, dense, and meant to be read across before importing. Column widths
+   come from a <colgroup>, which only takes effect with a fixed layout; the
+   wrapper scrolls sideways so a narrow window shrinks the viewport rather than
+   the columns. Tighter cell padding buys width back for the text itself. */
+.draft-scroll { overflow-x: auto; max-width: 100%; }
+/* 660px of fixed columns + a floor for the two flexible ones, so Unit and
+   Standard never collapse back to the unreadable width this replaced. */
+.table--draft { table-layout: fixed; min-width: 1040px; }
+.table--draft th, .table--draft td { padding-left: 8px; padding-right: 8px; }
+.table--draft th:first-child, .table--draft td:first-child { padding-left: 16px; }
+.table--draft th:last-child, .table--draft td:last-child { padding-right: 16px; }
+.table--draft .input { width: 100%; padding-left: 8px; padding-right: 6px; }
+
 /* ---------- Print ----------
    The observation rotation is meant to be carried on a clipboard, so printing
    drops the app chrome (sidebar, topbar, buttons) and lets the tables break

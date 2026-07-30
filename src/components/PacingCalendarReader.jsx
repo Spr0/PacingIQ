@@ -272,7 +272,7 @@ export default function PacingCalendarReader({ onClose }) {
     <Modal
       title="AI Pacing Calendar Reader"
       onClose={onClose}
-      maxWidth={880}
+      maxWidth={1220}
       footer={
         <button className="btn" onClick={onClose}>
           Close
@@ -476,7 +476,26 @@ export default function PacingCalendarReader({ onClose }) {
               </div>
             )}
 
-            <table className="table">
+            {/* The draft exists to be READ before importing, so Unit and
+                Standard get real width and the whole thing scrolls sideways
+                rather than squeezing seven columns into the modal. Without
+                this, a 115-row draft showed "Un" and "K.RL.1, K" and had to be
+                clicked into field by field. */}
+            <div className="draft-scroll">
+            <table className="table table--draft">
+              {/* Only the predictable columns get a fixed width; Unit and
+                  Standard are left unsized so a fixed table layout splits
+                  whatever remains between them, which is where the long text
+                  actually is. */}
+              <colgroup>
+                <col style={{ width: 132 }} />
+                <col />
+                <col style={{ width: 140 }} />
+                <col />
+                <col style={{ width: 180 }} />
+                <col style={{ width: 132 }} />
+                <col style={{ width: 76 }} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>Week of</th>
@@ -505,19 +524,38 @@ export default function PacingCalendarReader({ onClose }) {
                         title={outsideSchoolYear(w.weekOf, schoolYear) ? `Outside ${schoolYear}-${schoolYear + 1}` : undefined}
                       />
                     </td>
+                    {/* title= so the longest unit names and standards lists,
+                        which still outrun even a wide column, can be read on
+                        hover instead of only by clicking into the field. */}
                     <td>
-                      <input className="input" value={w.unit || ''} onChange={(e) => updateWeek(i, { unit: e.target.value })} />
+                      <input
+                        className="input"
+                        value={w.unit || ''}
+                        title={w.unit || undefined}
+                        onChange={(e) => updateWeek(i, { unit: e.target.value })}
+                      />
                     </td>
                     <td>
-                      <input className="input" value={w.lesson || ''} onChange={(e) => updateWeek(i, { lesson: e.target.value })} />
+                      <input
+                        className="input"
+                        value={w.lesson || ''}
+                        title={w.lesson || undefined}
+                        onChange={(e) => updateWeek(i, { lesson: e.target.value })}
+                      />
                     </td>
                     <td>
-                      <input className="input" value={w.standard || ''} onChange={(e) => updateWeek(i, { standard: e.target.value })} />
+                      <input
+                        className="input"
+                        value={w.standard || ''}
+                        title={w.standard || undefined}
+                        onChange={(e) => updateWeek(i, { standard: e.target.value })}
+                      />
                     </td>
                     <td>
                       <input
                         className="input"
                         value={w.assessmentName || ''}
+                        title={w.assessmentName || undefined}
                         onChange={(e) => updateWeek(i, { assessmentName: e.target.value })}
                       />
                     </td>
@@ -546,6 +584,7 @@ export default function PacingCalendarReader({ onClose }) {
                 ))}
               </tbody>
             </table>
+            </div>
             <button className="btn btn--ghost btn--sm" onClick={addWeek}>
               + Add week
             </button>
