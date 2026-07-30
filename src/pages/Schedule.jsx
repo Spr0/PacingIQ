@@ -39,6 +39,7 @@ export default function Schedule() {
   const [startDate, setStartDate] = useState(() => isoDate(snapToWeekday(today())));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [calendarHelp, setCalendarHelp] = useState(null); // 'google' | 'outlook'
   const autoRan = useRef(false);
 
   const { days, cycles } = useMemo(
@@ -76,6 +77,18 @@ export default function Schedule() {
     generate(from, 'auto-generated the next observation cycle');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, writable, teachers.length, busy]);
+
+  // Google Calendar has no URL that adds events in bulk -- importing a file is
+  // the only one-shot route -- so the most we can do is download the file and
+  // land the user on the import screen, then say what's left. Opened in the
+  // same click as the download so the popup isn't blocked.
+  const GOOGLE_IMPORT_URL = 'https://calendar.google.com/calendar/r/settings/export';
+
+  function addToCalendar(target) {
+    downloadScheduleIcs(days);
+    setCalendarHelp(target);
+    if (target === 'google') window.open(GOOGLE_IMPORT_URL, '_blank', 'noopener,noreferrer');
+  }
 
   async function toggleDone(entry) {
     if (busy) return;
@@ -126,8 +139,19 @@ export default function Schedule() {
         <div className="row row--wrap" style={{ gap: 8 }}>
           {totalVisits > 0 && (
             <>
-              <button className="btn btn--sm" onClick={() => downloadScheduleIcs(days)}>
-                <Icon name="pacing" /> Calendar
+              {/* Both calendar buttons download the same .ics -- the file is
+                  standard and neither app is special. What differs is what
+                  happens next, and that's the part people get stuck on: a
+                  double-clicked .ics is opened by whatever owns the file type
+                  (Outlook on a district Windows machine), which is useless to
+                  someone who lives in Google Calendar. So each button states
+                  its own next step, and the Google one opens the import page
+                  because Google has no URL that bulk-adds events. */}
+              <button className="btn btn--sm" onClick={() => addToCalendar('google')} title="Downloads the .ics and opens Google Calendar's import page">
+                <Icon name="pacing" /> Google Calendar
+              </button>
+              <button className="btn btn--sm" onClick={() => addToCalendar('outlook')} title="Downloads the .ics for Outlook, Apple Calendar, or any other calendar app">
+                <Icon name="pacing" /> Outlook / Apple
               </button>
               <button className="btn btn--sm" onClick={() => downloadScheduleCsv(days)}>
                 <Icon name="report" /> CSV
@@ -153,6 +177,31 @@ export default function Schedule() {
       </div>
 
       {error && <div className="banner banner--danger no-print">{error}</div>}
+
+      {calendarHelp && (
+        <div className="banner banner--info no-print" style={{ justifyContent: 'space-between' }}>
+          <span>
+            {calendarHelp === 'google' ? (
+              <>
+                <strong>pacingiq-observation-rotation.ics</strong> downloaded, and Google Calendar's
+                import page should have opened in a new tab. There, choose <strong>Select file from
+                your computer</strong>, pick that file, choose which calendar, then{' '}
+                <strong>Import</strong>. Don't double-click the file itself — Windows hands it to
+                Outlook.
+              </>
+            ) : (
+              <>
+                <strong>pacingiq-observation-rotation.ics</strong> downloaded. Open it to add the
+                visits to Outlook or Apple Calendar. In Outlook on the web instead:{' '}
+                <strong>Add calendar → Upload from file</strong>.
+              </>
+            )}
+          </span>
+          <button className="btn btn--ghost btn--sm" onClick={() => setCalendarHelp(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {teachers.length === 0 ? (
         <Card>
