@@ -15,7 +15,14 @@ import { isoDate } from './dates.js';
 // split into line-aligned batches, each read in its own call, and the weeks are
 // merged. A short first line (title or CSV header) is repeated on every batch so
 // each keeps its column context.
-const MAX_CHARS_PER_CALL = 3000;
+//
+// 3000 was too big: measured against the deployed function, a dense 3000-char
+// spreadsheet chunk took ~24s of the ~26s budget, because latency is driven by
+// how much JSON the model has to emit, not by input size. Any denser real file
+// tipped it over into a 504. The same content at 1000 chars took ~9s, so 1200
+// keeps a comfortable margin. Raising this again without re-measuring is how
+// the timeout comes back.
+const MAX_CHARS_PER_CALL = 1200;
 const MAX_CONCURRENT_CALLS = 3;
 
 function chunkCalendar(text, maxChars) {
@@ -89,6 +96,11 @@ async function callCalendarReader(payload) {
   // timeout, truncated output). Surface it instead of masking it as offline.
   const err = new Error((data && (data.detail || data.error)) || `Request failed (${res.status})`);
   err.reachable = true;
+  err.status = res.status;
+  // A gateway status is the platform killing the request, not a bad API key.
+  // Telling the user to check their credentials in that case sends them off
+  // to verify something that was never wrong.
+  err.timedOut = res.status === 504 || res.status === 502 || res.status === 503;
   throw err;
 }
 

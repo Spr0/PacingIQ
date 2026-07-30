@@ -54,6 +54,74 @@ function extOf(name) {
   return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
 }
 
+// Splits one delimited line, respecting "quoted, fields" and "" escapes.
+function splitRow(line, delim) {
+  const cells = [];
+  let cur = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (quoted) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+        } else quoted = false;
+      } else cur += c;
+    } else if (c === '"') {
+      quoted = true;
+    } else if (c === delim) {
+      cells.push(cur);
+      cur = '';
+    } else cur += c;
+  }
+  cells.push(cur);
+  return cells;
+}
+
+function joinRow(cells, delim) {
+  return cells
+    .map((c) => (c.includes(delim) || c.includes('"') || c.includes('\n') ? `"${c.replace(/"/g, '""')}"` : c))
+    .join(delim);
+}
+
+// Spreadsheets carry a lot of layout that means nothing to a reader: spacer
+// columns, merged-cell padding, and blank rows all survive sheet_to_csv as
+// runs of bare delimiters (",,,,K,," and '"""""' in a real district
+// calendar). That padding is pure cost -- it inflates the character count
+// that decides how many model calls a file needs, and it makes each call
+// slower for no added meaning, which is what pushed a full-year calendar
+// past the serverless timeout into a 504. Dropping all-empty rows and
+// columns is lossless for the reader and typically cuts the payload by more
+// than half.
+export function tidyTabularText(text, delim = ',') {
+  if (!text) return '';
+  const lines = String(text).replace(/\r\n?/g, '\n').split('\n');
+  const rows = lines.map((l) => splitRow(l, delim));
+
+  // A column is dead if every row leaves it blank.
+  const width = rows.reduce((w, r) => Math.max(w, r.length), 0);
+  const liveCols = [];
+  for (let c = 0; c < width; c += 1) {
+    if (rows.some((r) => (r[c] || '').trim() !== '')) liveCols.push(c);
+  }
+
+  const out = [];
+  for (const row of rows) {
+    const kept = liveCols.map((c) => (row[c] || '').trim());
+    // Drop trailing blanks so short rows don't carry a tail of delimiters.
+    while (kept.length && kept[kept.length - 1] === '') kept.pop();
+    if (kept.length === 0) {
+      // Collapse any run of blank rows into a single separator.
+      if (out.length && out[out.length - 1] !== '') out.push('');
+      continue;
+    }
+    out.push(joinRow(kept, delim));
+  }
+  while (out.length && out[out.length - 1] === '') out.pop();
+  return out.join('\n');
+}
+
 function readAsText(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -84,9 +152,10 @@ async function extractExcelText(file) {
   const bytes = await readAsUint8Array(file);
   const workbook = XLSX.read(bytes, { type: 'array' });
   const text = workbook.SheetNames.map((name) => {
-    const csv = XLSX.utils.sheet_to_csv(workbook.Sheets[name]);
+    const csv = tidyTabularText(XLSX.utils.sheet_to_csv(workbook.Sheets[name]));
     return workbook.SheetNames.length > 1 ? `# Sheet: ${name}\n${csv}` : csv;
   })
+    .filter((s) => s.trim())
     .join('\n\n')
     .trim();
   if (!text) throw new Error(`${file.name} has no readable rows.`);
@@ -138,7 +207,12 @@ export async function extractUploadedFile(file) {
   }
 
   // csv, tsv, txt, or anything else that reads as text
-  const text = (await readAsText(file)).trim();
-  if (!text) throw new Error(`${file.name} is empty.`);
+  const raw = (await readAsText(file)).trim();
+  if (!raw) throw new Error(`${file.name} is empty.`);
+  // Delimited files get the same padding removed as spreadsheets; .txt is
+  // left alone since it has no column structure to reason about.
+  const text =
+    ext === 'csv' ? tidyTabularText(raw, ',') : ext === 'tsv' ? tidyTabularText(raw, '\t') : raw;
+  if (!text) throw new Error(`${file.name} has no readable rows.`);
   return { kind: 'text', text, name: file.name };
 }

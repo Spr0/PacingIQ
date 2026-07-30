@@ -93,10 +93,17 @@ export default function PacingCalendarReader({ onClose }) {
       setWeeks(extracted.map((w) => ({ id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '', ...w })));
       setSource('ai');
     } catch (e) {
-      if (e.reachable) {
+      if (e.reachable && e.timedOut) {
+        // The old copy blamed ANTHROPIC_API_KEY/ANTHROPIC_MODEL for every
+        // failure, including this one -- which sent people to check config
+        // that was fine. A gateway timeout means the section was too big to
+        // read inside the serverless budget, so say that and give the action
+        // that actually helps.
         setError(
-          `Live analysis failed: ${e.message} Check ANTHROPIC_API_KEY and ANTHROPIC_MODEL in the Netlify site settings.`
+          'That took too long to read in one pass. Upload or paste a smaller section — one quarter or one unit at a time — and import each in turn.'
         );
+      } else if (e.reachable) {
+        setError(`Live analysis failed: ${e.message}`);
       } else if (fileDoc) {
         // A PDF has no offline path: reading the document needs the live model.
         setError(
