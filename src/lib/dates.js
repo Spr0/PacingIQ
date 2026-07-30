@@ -53,5 +53,11 @@ export function formatDate(value) {
 
 export function isoDate(d = today()) {
   const date = d instanceof Date ? d : parse(d) || today();
-  return date.toISOString().slice(0, 10);
+  // Formatted from local parts, not toISOString(): every Date in this module
+  // is local midnight, and converting that to UTC lands on the previous
+  // calendar day for anyone east of UTC -- so isoDate(today()) would return
+  // yesterday and "is this scheduled for today?" comparisons would miss by a
+  // day. Same class of bug as the UTC round-trip removed from parse() above.
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
