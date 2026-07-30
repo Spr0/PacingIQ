@@ -104,6 +104,34 @@ async function callCalendarReader(payload) {
   throw err;
 }
 
+// Reads one chunk, and on a gateway timeout splits it and reads the halves.
+//
+// Measured against the deployed function on a real district workbook, chunk
+// latency is dominated by how many week-rows the model emits: sparse chunks
+// answer in 1-5s while date-dense ones take 17-20s against a ~26s ceiling.
+// That makes a timeout marginal rather than deterministic -- the same file
+// succeeds on one run and 504s on the next. Halving a chunk roughly halves
+// its output, so a retry reliably lands well inside the budget. Cost is only
+// paid on the chunks that actually stall.
+async function readChunkWithRetry(chunk, context, depth = 0) {
+  try {
+    return await callCalendarReader({ calendarText: chunk, context });
+  } catch (err) {
+    const lines = chunk.split('\n');
+    // Give up splitting when there's nothing left to split or we've already
+    // gone several levels deep -- at that point it isn't size that's failing.
+    if (!err.timedOut || depth >= 3 || lines.length < 2) throw err;
+    const mid = Math.ceil(lines.length / 2);
+    const halves = [lines.slice(0, mid).join('\n'), lines.slice(mid).join('\n')];
+    const out = [];
+    for (const half of halves) {
+      if (!half.trim()) continue;
+      out.push(...(await readChunkWithRetry(half, context, depth + 1)));
+    }
+    return out;
+  }
+}
+
 // `document` is an optional { fileBase64, mediaType } for the PDF-upload path;
 // when present the function hands it to the model as a native document block.
 export async function analyzeCalendar(calendarText, context, document) {
@@ -111,11 +139,8 @@ export async function analyzeCalendar(calendarText, context, document) {
     return callCalendarReader({ context, document });
   }
   const chunks = chunkCalendar(calendarText || '', MAX_CHARS_PER_CALL);
-  if (chunks.length <= 1) {
-    return callCalendarReader({ calendarText: chunks[0], context });
-  }
   const perChunk = await mapLimit(chunks, MAX_CONCURRENT_CALLS, (chunk) =>
-    callCalendarReader({ calendarText: chunk, context })
+    readChunkWithRetry(chunk, context)
   );
   return perChunk.flat();
 }

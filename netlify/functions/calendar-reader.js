@@ -20,6 +20,13 @@ source. Do not invent weeks, dates, units, or standards that are not stated or c
 a date is not given for a week, estimate it from surrounding dates only if the source provides
 enough structure to do so reliably; otherwise leave it null.
 
+YEARS. District calendars very often write dates without a year ("8/19-10/18", "Week of 9/8").
+Never guess the year. If the user message states a school year, every date you output MUST fall
+inside it: use the first calendar year for months from July through December and the second for
+January through June. If no school year is stated and the source does not give one explicitly,
+set weekOf and assessmentDate to null rather than assuming a year -- a wrong year silently
+corrupts the coach's records, whereas a null is visibly incomplete and gets filled in by hand.
+
 Return ONLY valid JSON, no markdown fences, no prose, matching exactly this shape:
 {
   "weeks": [

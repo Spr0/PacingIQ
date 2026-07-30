@@ -25,11 +25,33 @@ function emptyRow() {
   return { id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '' };
 }
 
+// School years run Jul-Jun, so anything before July belongs to the year that
+// started the previous calendar year.
+function currentSchoolYearStart() {
+  const now = new Date();
+  return now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+// A date is in range if it falls in Jul(start) .. Jun(start+1).
+function outsideSchoolYear(dateStr, startYear) {
+  if (!dateStr) return false;
+  const m = /^(\d{4})-(\d{2})-/.exec(dateStr);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const expected = mo >= 7 ? startYear : startYear + 1;
+  return y !== expected;
+}
+
 export default function PacingCalendarReader({ onClose }) {
   const { rollups, pacingEntries, assessments, db } = useApp();
 
   const [teacherId, setTeacherId] = useState('');
   const [subject, setSubject] = useState('');
+  // Anchors undated rows to the right year. District calendars routinely write
+  // "8/19-10/18" with no year, and without this the model guessed -- a real
+  // 2026-27 Kindergarten calendar came back with 2020, 2023 and 2025 dates.
+  const [schoolYear, setSchoolYear] = useState(currentSchoolYearStart);
   const [calendarText, setCalendarText] = useState('');
   const [weeks, setWeeks] = useState([]);
   const [source, setSource] = useState(null);
@@ -44,6 +66,9 @@ export default function PacingCalendarReader({ onClose }) {
 
   const selectedTeacher = rollups.find((r) => r.teacher.id === teacherId)?.teacher;
   const subjectOptions = selectedTeacher?.subjects || [];
+  const outOfRangeCount = weeks.filter(
+    (w) => outsideSchoolYear(w.weekOf, schoolYear) || outsideSchoolYear(w.assessmentDate, schoolYear)
+  ).length;
 
   async function handleFile(e) {
     const file = e.target.files?.[0];
@@ -83,11 +108,12 @@ export default function PacingCalendarReader({ onClose }) {
     setLoading(true);
     setError(null);
     setImportedNote(null);
+    const yearNote = `School year: ${schoolYear}-${schoolYear + 1}. Every date must fall within July ${schoolYear} to June ${schoolYear + 1}.`;
     const context = selectedTeacher
       ? `Teacher: ${selectedTeacher.name}. Subject: ${subject || selectedTeacher.subject || 'n/a'}. Grade: ${
           selectedTeacher.gradeLevel || 'n/a'
-        }.`
-      : '';
+        }. ${yearNote}`
+      : yearNote;
     try {
       const extracted = await analyzeCalendar(fileDoc ? '' : calendarText, context, fileDoc || undefined);
       setWeeks(extracted.map((w) => ({ id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '', ...w })));
@@ -128,6 +154,16 @@ export default function PacingCalendarReader({ onClose }) {
 
   function removeWeek(index) {
     setWeeks((rows) => rows.filter((_, i) => i !== index));
+  }
+
+  function clearOutOfRangeDates() {
+    setWeeks((rows) =>
+      rows.map((r) => ({
+        ...r,
+        weekOf: outsideSchoolYear(r.weekOf, schoolYear) ? '' : r.weekOf,
+        assessmentDate: outsideSchoolYear(r.assessmentDate, schoolYear) ? '' : r.assessmentDate,
+      }))
+    );
   }
 
   function approveAndImport() {
@@ -234,6 +270,24 @@ export default function PacingCalendarReader({ onClose }) {
           )}
         </div>
 
+        <Field label="School year" hint="anchors dates written without a year, e.g. &quot;8/19-10/18&quot;">
+          <select
+            className="select"
+            value={schoolYear}
+            onChange={(e) => setSchoolYear(Number(e.target.value))}
+            style={{ maxWidth: 200 }}
+          >
+            {[schoolYear - 2, schoolYear - 1, schoolYear, schoolYear + 1, schoolYear + 2]
+              .filter((y, i, a) => a.indexOf(y) === i)
+              .sort((a, b) => a - b)
+              .map((y) => (
+                <option key={y} value={y}>
+                  {y}-{y + 1}
+                </option>
+              ))}
+          </select>
+        </Field>
+
         <Field label="Upload a file" hint="PDF, Excel (.xlsx/.xls), CSV, or text · max 4MB">
           <input
             className="input"
@@ -292,6 +346,17 @@ export default function PacingCalendarReader({ onClose }) {
               </span>
             </div>
 
+            {/* Dates outside the stated school year are the one error that would
+                silently corrupt a record if imported, so they're called out
+                above the table rather than left for the coach to spot. */}
+            {outOfRangeCount > 0 && (
+              <div className="banner banner--warn">
+                {outOfRangeCount} row{outOfRangeCount === 1 ? '' : 's'} came back with a date outside{' '}
+                {schoolYear}-{schoolYear + 1} (highlighted below). The source likely wrote those dates
+                without a year. Correct or clear them before importing.
+              </div>
+            )}
+
             <table className="table">
               <thead>
                 <tr>
@@ -313,6 +378,12 @@ export default function PacingCalendarReader({ onClose }) {
                         type="date"
                         value={w.weekOf || ''}
                         onChange={(e) => updateWeek(i, { weekOf: e.target.value })}
+                        style={
+                          outsideSchoolYear(w.weekOf, schoolYear)
+                            ? { borderColor: 'var(--amber-500)', background: 'var(--amber-surface)' }
+                            : undefined
+                        }
+                        title={outsideSchoolYear(w.weekOf, schoolYear) ? `Outside ${schoolYear}-${schoolYear + 1}` : undefined}
                       />
                     </td>
                     <td>
@@ -337,6 +408,14 @@ export default function PacingCalendarReader({ onClose }) {
                         type="date"
                         value={w.assessmentDate || ''}
                         onChange={(e) => updateWeek(i, { assessmentDate: e.target.value })}
+                        style={
+                          outsideSchoolYear(w.assessmentDate, schoolYear)
+                            ? { borderColor: 'var(--amber-500)', background: 'var(--amber-surface)' }
+                            : undefined
+                        }
+                        title={
+                          outsideSchoolYear(w.assessmentDate, schoolYear) ? `Outside ${schoolYear}-${schoolYear + 1}` : undefined
+                        }
                       />
                     </td>
                     <td>
@@ -352,14 +431,27 @@ export default function PacingCalendarReader({ onClose }) {
               + Add week
             </button>
 
-            <div className="row" style={{ gap: 10 }}>
+            <div className="row row--wrap" style={{ gap: 10 }}>
               <button
                 className="btn btn--primary"
                 onClick={approveAndImport}
-                disabled={!teacherId || (subjectOptions.length > 0 && !subject)}
+                disabled={!teacherId || (subjectOptions.length > 0 && !subject) || outOfRangeCount > 0}
               >
                 <Icon name="interventions" /> Approve and Import
               </button>
+              {outOfRangeCount > 0 && (
+                <>
+                  <span className="small muted">
+                    Fix the {outOfRangeCount} highlighted date{outOfRangeCount === 1 ? '' : 's'} to import.
+                  </span>
+                  {/* Bulk escape hatch: on a big calendar, clearing the bad dates by
+                      hand is dozens of clicks. A null date is safe -- rows without
+                      one are skipped on import rather than saved wrong. */}
+                  <button className="btn btn--ghost btn--sm" onClick={clearOutOfRangeDates}>
+                    Clear the {outOfRangeCount} bad date{outOfRangeCount === 1 ? '' : 's'}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
