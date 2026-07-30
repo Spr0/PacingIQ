@@ -15,7 +15,15 @@ import { Modal, Field } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { useApp } from '../state/AppContext.jsx';
 import { analyzeCalendar, localCalendarAnalysis } from '../lib/calendarReader.js';
-import { extractUploadedFile, UPLOAD_FILE_ACCEPT } from '../lib/fileExtract.js';
+import { extractUploadedFile, sheetLooksLikePacing, UPLOAD_FILE_ACCEPT } from '../lib/fileExtract.js';
+
+// Mirrors MAX_CHARS_PER_CALL in lib/calendarReader.js, only to show the coach
+// roughly how many model calls a selection will cost before she commits to it.
+const CHARS_PER_CALL = 1200;
+
+function estimateCalls(chars) {
+  return Math.max(1, Math.ceil(chars / CHARS_PER_CALL));
+}
 
 function rowId() {
   return 'row_' + Math.random().toString(36).slice(2, 9);
@@ -63,6 +71,9 @@ export default function PacingCalendarReader({ onClose }) {
   const [fileDoc, setFileDoc] = useState(null);
   const [fileName, setFileName] = useState('');
   const [extracting, setExtracting] = useState(false);
+  // Multi-sheet workbooks: every tab, plus which ones are selected for reading.
+  const [sheets, setSheets] = useState([]);
+  const [selectedSheets, setSelectedSheets] = useState([]);
 
   const selectedTeacher = rollups.find((r) => r.teacher.id === teacherId)?.teacher;
   const subjectOptions = selectedTeacher?.subjects || [];
@@ -83,12 +94,27 @@ export default function PacingCalendarReader({ onClose }) {
         setFileDoc({ fileBase64: out.fileBase64, mediaType: out.mediaType });
         setFileName(out.name);
         setCalendarText('');
+        setSheets([]);
+        setSelectedSheets([]);
       } else {
         // CSV / Excel / text extracted to plain text: fill the textarea so the
         // coach can review and edit it, and reuse the normal text pipeline.
         setFileDoc(null);
         setFileName(out.name);
-        setCalendarText(out.text);
+        if (out.sheets && out.sheets.length > 1) {
+          // Start on the tabs that look like pacing, falling back to all of
+          // them if the heuristic matches nothing -- better to cost a few
+          // extra calls than to silently read none of the file.
+          const suggested = out.sheets.filter(sheetLooksLikePacing).map((s) => s.name);
+          const initial = suggested.length ? suggested : out.sheets.map((s) => s.name);
+          setSheets(out.sheets);
+          setSelectedSheets(initial);
+          setCalendarText(joinSheets(out.sheets, initial));
+        } else {
+          setSheets([]);
+          setSelectedSheets([]);
+          setCalendarText(out.text);
+        }
       }
     } catch (err) {
       setError(err.message);
@@ -97,9 +123,32 @@ export default function PacingCalendarReader({ onClose }) {
     }
   }
 
+  function joinSheets(all, names) {
+    return all
+      .filter((s) => names.includes(s.name))
+      .map((s) => `# Sheet: ${s.name}\n${s.text}`)
+      .join('\n\n')
+      .trim();
+  }
+
+  function toggleSheet(name) {
+    const next = selectedSheets.includes(name)
+      ? selectedSheets.filter((n) => n !== name)
+      : [...selectedSheets, name];
+    setSelectedSheets(next);
+    setCalendarText(joinSheets(sheets, next));
+  }
+
+  function setAllSheets(names) {
+    setSelectedSheets(names);
+    setCalendarText(joinSheets(sheets, names));
+  }
+
   function clearFile() {
     setFileDoc(null);
     setFileName('');
+    setSheets([]);
+    setSelectedSheets([]);
   }
 
   async function read() {
@@ -307,6 +356,76 @@ export default function PacingCalendarReader({ onClose }) {
             <button className="btn btn--ghost btn--sm" onClick={clearFile}>
               Remove file
             </button>
+          </div>
+        )}
+
+        {/* Sheet picker. A district workbook is often mostly tabs that hold no
+            pacing at all -- resource-link indexes, blank month grids -- and
+            each one still costs model calls and time. Showing the cost per tab
+            makes the tradeoff visible instead of it just being slow. */}
+        {sheets.length > 1 && (
+          <div className="stack" style={{ gap: 8 }}>
+            <div className="row row--between row--wrap" style={{ gap: 8 }}>
+              <span className="section-title" style={{ margin: 0 }}>
+                Which sheets to read · {sheets.length} in this workbook
+              </span>
+              <span className="row" style={{ gap: 6 }}>
+                <button
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => setAllSheets(sheets.filter(sheetLooksLikePacing).map((s) => s.name))}
+                  disabled={!sheets.some(sheetLooksLikePacing)}
+                >
+                  Suggested only
+                </button>
+                <button className="btn btn--ghost btn--sm" onClick={() => setAllSheets(sheets.map((s) => s.name))}>
+                  All
+                </button>
+                <button className="btn btn--ghost btn--sm" onClick={() => setAllSheets([])}>
+                  None
+                </button>
+              </span>
+            </div>
+            <ul className="checklist">
+              {sheets.map((s) => {
+                const on = selectedSheets.includes(s.name);
+                const suggested = sheetLooksLikePacing(s);
+                return (
+                  <li key={s.name}>
+                    <button
+                      type="button"
+                      className={`check ${on ? 'check--done' : 'check--todo'}`}
+                      onClick={() => toggleSheet(s.name)}
+                      aria-pressed={on}
+                      aria-label={`${on ? 'Deselect' : 'Select'} sheet ${s.name}`}
+                      style={{ cursor: 'pointer', border: 'none', font: 'inherit' }}
+                    >
+                      {on ? '✓' : ''}
+                    </button>
+                    <span
+                      style={{ flex: 1, minWidth: 0, cursor: 'pointer', color: on ? 'var(--text-strong)' : 'var(--text-muted)' }}
+                      onClick={() => toggleSheet(s.name)}
+                    >
+                      {s.name}
+                      {suggested && (
+                        <span className="badge badge--brand" style={{ marginLeft: 8 }}>
+                          likely pacing
+                        </span>
+                      )}
+                    </span>
+                    <span className="muted small mono" style={{ whiteSpace: 'nowrap' }}>
+                      {estimateCalls(s.text.length)} call{estimateCalls(s.text.length) === 1 ? '' : 's'}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="small muted" style={{ margin: 0 }}>
+              {selectedSheets.length} of {sheets.length} selected ·{' '}
+              {calendarText.length.toLocaleString()} characters · about{' '}
+              {estimateCalls(calendarText.length)} model call
+              {estimateCalls(calendarText.length) === 1 ? '' : 's'}
+              {selectedSheets.length === 0 && ' — select at least one sheet, or paste text below.'}
+            </p>
           </div>
         )}
 

@@ -151,15 +151,52 @@ async function extractExcelText(file) {
   }
   const bytes = await readAsUint8Array(file);
   const workbook = XLSX.read(bytes, { type: 'array' });
-  const text = workbook.SheetNames.map((name) => {
-    const csv = tidyTabularText(XLSX.utils.sheet_to_csv(workbook.Sheets[name]));
-    return workbook.SheetNames.length > 1 ? `# Sheet: ${name}\n${csv}` : csv;
-  })
-    .filter((s) => s.trim())
+  // Per-sheet as well as merged: a district workbook is routinely 15 tabs of
+  // which two hold pacing and the rest are resource-link indexes and blank
+  // month grids. Reading all of them costs a model call per ~1200 characters
+  // and returns nothing for most, so the caller gets the breakdown and can
+  // read only what matters. See sheetLooksLikePacing below.
+  const sheets = workbook.SheetNames.map((name) => ({
+    name,
+    text: tidyTabularText(XLSX.utils.sheet_to_csv(workbook.Sheets[name])),
+  })).filter((s) => s.text.trim());
+
+  const text = sheets
+    .map((s) => (sheets.length > 1 ? `# Sheet: ${s.name}\n${s.text}` : s.text))
     .join('\n\n')
     .trim();
   if (!text) throw new Error(`${file.name} has no readable rows.`);
-  return text;
+  return { text, sheets };
+}
+
+// Heuristic for pre-selecting which tabs of a multi-sheet workbook are worth
+// reading. It only sets the default -- the picker lists every sheet and the
+// coach can override -- and when it matches nothing the caller selects all,
+// so a miss costs calls rather than data.
+//
+// Measured against a real 15-tab district workbook, the discriminator is the
+// density of STANDARDS CODES. The two tabs that actually hold pacing carried
+// 108 and 21 of them; the resource-link index and all eleven month grids
+// carried none. Word cues alone are useless here: the resource index says
+// "module" 403 times and a blank month grid still contains month names, which
+// is why an earlier version of this selected 12 of 14 tabs.
+//
+// A few codes rather than one, so a stray match doesn't pull in a whole tab.
+// The date-based alternative catches a pacing tab that lists dated units but
+// no standards; month grids fail it because their dates are bare grid numbers
+// rather than m/d pairs.
+const STANDARDS_CODE = /\b[a-z]{1,3}\.[a-z]{1,3}\.?\d+[a-z]?\b/g;
+const UNIT_WORD = /\b(unit|module|cycle|lesson)\b/g;
+const MD_DATE = /\b\d{1,2}\/\d{1,2}\b/g;
+
+function countOf(text, re) {
+  return (text.match(re) || []).length;
+}
+
+export function sheetLooksLikePacing(sheet) {
+  const t = (sheet.text || '').toLowerCase();
+  if (countOf(t, STANDARDS_CODE) >= 3) return true;
+  return countOf(t, UNIT_WORD) >= 3 && countOf(t, MD_DATE) >= 3;
 }
 
 async function extractPdfText(file) {
@@ -203,7 +240,10 @@ export async function extractUploadedFile(file) {
   }
 
   if (ext === 'xlsx' || ext === 'xls' || type.includes('spreadsheetml') || type === 'application/vnd.ms-excel') {
-    return { kind: 'text', text: await extractExcelText(file), name: file.name };
+    // `sheets` is extra: callers that only want the whole thing (the Lesson
+    // Plan reader) keep using `text` unchanged.
+    const { text, sheets } = await extractExcelText(file);
+    return { kind: 'text', text, sheets, name: file.name };
   }
 
   // csv, tsv, txt, or anything else that reads as text
