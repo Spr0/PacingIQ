@@ -23,7 +23,11 @@ import { isoDate } from './dates.js';
 // keeps a comfortable margin. Raising this again without re-measuring is how
 // the timeout comes back.
 const MAX_CHARS_PER_CALL = 1200;
-const MAX_CONCURRENT_CALLS = 3;
+// Dropped from 3 to 2: at 3, measured runs against a real workbook drew HTTP
+// 529 (Anthropic overloaded) on roughly a fifth of chunks. Two in flight still
+// keeps a large file moving while provoking far fewer retries, and a retry
+// costs more wall-clock than the parallelism saves.
+const MAX_CONCURRENT_CALLS = 2;
 
 function chunkCalendar(text, maxChars) {
   if (!text || text.length <= maxChars) return [text || ''];
@@ -101,6 +105,11 @@ async function callCalendarReader(payload) {
   // Telling the user to check their credentials in that case sends them off
   // to verify something that was never wrong.
   err.timedOut = res.status === 504 || res.status === 502 || res.status === 503;
+  // 529 is Anthropic "overloaded" and 429 is rate limiting: both mean "the
+  // same request would probably work shortly". Measured on a real workbook,
+  // 3 of 17 concurrent chunks came back 529 -- frequent enough that without a
+  // retry a whole import fails on a transient upstream blip.
+  err.overloaded = res.status === 529 || res.status === 429;
   throw err;
 }
 
@@ -113,10 +122,18 @@ async function callCalendarReader(payload) {
 // succeeds on one run and 504s on the next. Halving a chunk roughly halves
 // its output, so a retry reliably lands well inside the budget. Cost is only
 // paid on the chunks that actually stall.
-async function readChunkWithRetry(chunk, context, depth = 0) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function readChunkWithRetry(chunk, context, depth = 0, attempt = 0) {
   try {
     return await callCalendarReader({ calendarText: chunk, context });
   } catch (err) {
+    // Transient upstream overload: the same request is likely fine in a moment,
+    // so wait and repeat it unchanged rather than splitting it.
+    if (err.overloaded && attempt < 3) {
+      await sleep(1500 * 2 ** attempt); // 1.5s, 3s, 6s
+      return readChunkWithRetry(chunk, context, depth, attempt + 1);
+    }
     const lines = chunk.split('\n');
     // Give up splitting when there's nothing left to split or we've already
     // gone several levels deep -- at that point it isn't size that's failing.
