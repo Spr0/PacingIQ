@@ -11,8 +11,6 @@
 // to a teacher's pacing record. Nothing is sent anywhere from this function.
 // ---------------------------------------------------------------------------
 
-const { authenticate } = require('./_shared/auth.js');
-
 const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the lesson plan provided (as
 pasted plain text or an attached PDF document) and extract what it covers. Use ONLY the facts
 present in the lesson plan. Do not invent units, standards, or dates that are not stated or clearly
@@ -42,10 +40,6 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return json(405, { error: 'Method Not Allowed' });
   }
-
-  // Otherwise this is an unmetered public proxy onto our Anthropic key.
-  const auth = await authenticate(event);
-  if (auth.error) return auth.error;
 
   try {
     const { lessonText, context, document } = JSON.parse(event.body || '{}');

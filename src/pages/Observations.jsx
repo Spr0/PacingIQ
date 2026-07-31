@@ -18,7 +18,7 @@ import {
   ALLOWED_ATTACHMENT_TYPES,
   uploadAttachment,
   deleteAttachment,
-  fetchAttachmentUrl,
+  attachmentUrl,
 } from '../lib/attachments.js';
 import { Card, Badge, Empty, Field, Modal, SortHeader } from '../components/ui.jsx';
 
@@ -942,54 +942,6 @@ export default function Observations() {
   );
 }
 
-// One attachment row. The file used to be a plain <a href> straight at the
-// storage function, but that endpoint now requires a Supabase session and a
-// browser navigation cannot carry an Authorization header. So the click fetches
-// the bytes, opens the resulting blob, and revokes the object URL afterwards.
-//
-// A failure is shown inline rather than swallowed: a coach clicking evidence
-// during a conference needs to know it did not open, not watch nothing happen.
-function AttachmentLink({ attachment }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-
-  async function open() {
-    if (busy) return;
-    setBusy(true);
-    setError(null);
-    let url = null;
-    try {
-      url = await fetchAttachmentUrl(attachment.key);
-      const win = window.open(url, '_blank', 'noopener,noreferrer');
-      if (!win) setError('Your browser blocked the popup for this file.');
-    } catch (err) {
-      setError(err.message || 'Could not open that file.');
-    } finally {
-      // The new tab has already read the blob by the time this runs; revoking
-      // on a timer rather than immediately keeps slower browsers from racing it.
-      if (url) setTimeout(() => URL.revokeObjectURL(url), 60000);
-      setBusy(false);
-    }
-  }
-
-  return (
-    <li>
-      <span className="check check--done">📎</span>
-      <button type="button" className="btn btn--ghost btn--sm" onClick={open} disabled={busy}>
-        {busy ? 'Opening…' : attachment.name}
-      </button>
-      <span className="muted small" style={{ marginLeft: 8 }}>
-        {attachment.sizeKB}KB
-      </span>
-      {error && (
-        <span className="small" style={{ marginLeft: 8, color: 'var(--red-600)' }}>
-          {error}
-        </span>
-      )}
-    </li>
-  );
-}
-
 // Read-only rendering of a full observation record, plus the leadership sharing
 // control when the current role can write. Sections and feedback fields the
 // teacher can see are flagged with a "Shared" pill.
@@ -1050,7 +1002,15 @@ function ViewBody({ obs, teacherName, writable, onShareWhole, onShareSection }) 
       ) : (
         <ul className="checklist">
           {obs.attachments.map((a) => (
-            <AttachmentLink key={a.id} attachment={a} />
+            <li key={a.id}>
+              <span className="check check--done">📎</span>
+              <a href={attachmentUrl(a.key)} download={a.name} target="_blank" rel="noreferrer">
+                {a.name}
+              </a>
+              <span className="muted small" style={{ marginLeft: 8 }}>
+                {a.sizeKB}KB
+              </span>
+            </li>
           ))}
         </ul>
       )}

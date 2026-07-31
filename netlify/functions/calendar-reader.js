@@ -13,8 +13,6 @@
 // anywhere from this function.
 // ---------------------------------------------------------------------------
 
-const { authenticate } = require('./_shared/auth.js');
-
 const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the pacing calendar provided
 (a district scope-and-sequence, unit plan, or syllabus, supplied as pasted plain text or an
 attached PDF document) and break it into a week-by-week list. Use ONLY the facts present in the
@@ -56,10 +54,6 @@ exports.handler = async (event) => {
   if (event.httpMethod !== 'POST') {
     return json(405, { error: 'Method Not Allowed' });
   }
-
-  // Otherwise this is an unmetered public proxy onto our Anthropic key.
-  const auth = await authenticate(event);
-  if (auth.error) return auth.error;
 
   try {
     const { calendarText, context, document } = JSON.parse(event.body || '{}');

@@ -11,13 +11,6 @@
 // saved. Nothing is sent anywhere from this function.
 // ---------------------------------------------------------------------------
 
-const { authenticate } = require('./_shared/auth.js');
-
-// A generous ceiling on the facts block. buildContext() in src/lib/coachAssist.js
-// produces well under a thousand characters even for a teacher with a long
-// history; this only exists to bound what one call can cost.
-const MAX_CONTEXT_CHARS = 40000;
-
 const SHARED_STYLE = `
 Write in a direct, professionally warm tone. Be specific and concrete.
 Use ONLY the facts provided in the context. Do not invent metrics, dates, events,
@@ -78,26 +71,11 @@ exports.handler = async (event) => {
     return json(405, { error: 'Method Not Allowed' });
   }
 
-  // Without this, the endpoint is an unmetered public proxy onto our Anthropic
-  // key: anyone could loop it until the account cap trips, which takes the
-  // tool down for the coaches too.
-  const auth = await authenticate(event);
-  if (auth.error) return auth.error;
-
   try {
     const { kind, context, language } = JSON.parse(event.body || '{}');
     let system = SYSTEM_PROMPTS[kind];
     if (!system) {
       return json(400, { error: `Unknown kind: ${kind}` });
-    }
-    // `context` goes straight into the messages array, where a non-string
-    // (an object, an array of blocks) would be passed through to the API as
-    // caller-controlled structure.
-    if (typeof context !== 'string' || !context.trim()) {
-      return json(400, { error: 'context must be a non-empty string' });
-    }
-    if (context.length > MAX_CONTEXT_CHARS) {
-      return json(413, { error: `context exceeds ${MAX_CONTEXT_CHARS} characters` });
     }
     if (language === 'es') {
       system = `${system}\n\n${SPANISH_INSTRUCTION}`;

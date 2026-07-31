@@ -10,7 +10,6 @@
 
 import { formatDate } from './dates.js';
 import { recommendedAction } from './intelligence.js';
-import { authHeaders } from './functionAuth.js';
 
 export const CONTENT_TYPES = [
   { key: 'summary', label: 'Coaching summary' },
@@ -91,13 +90,11 @@ export function buildContext(rollup, observations, assessments, coachName) {
 //                        ANTHROPIC_API_KEY / ANTHROPIC_MODEL, API error). This is
 //                        a config error and should be surfaced loudly, not masked.
 export async function generateDraft(kind, context, language = 'en') {
-  const headers = await authHeaders({ 'Content-Type': 'application/json' });
-
   let res;
   try {
     res = await fetch('/.netlify/functions/coach-assist', {
       method: 'POST',
-      headers,
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ kind, context, language }),
     });
   } catch {

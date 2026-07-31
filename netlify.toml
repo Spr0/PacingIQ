@@ -3,21 +3,10 @@
   command = "npm run build"
   publish = "dist"
 
-# Serverless functions (AI Coaching Assistant, attachment storage). Environment
+# Serverless functions (AI Coaching Assistant). Requires two environment
 # variables set in the Netlify site settings:
-#   ANTHROPIC_API_KEY   - your Anthropic API key
-#   ANTHROPIC_MODEL     - e.g. claude-opus-4-8 (no default; missing config fails loudly)
-#   VITE_SUPABASE_URL   - already set for the browser build; the functions reuse it
-#   VITE_SUPABASE_ANON_KEY - likewise
-#
-# Every function verifies the caller's Supabase session against those last two
-# (netlify/functions/_shared/auth.js). They must stay scoped to Functions -- if
-# they stop resolving, every function returns 500 rather than serving an
-# unauthenticated request. SUPABASE_URL / SUPABASE_ANON_KEY are read first if
-# set, so the pair can be split later without a code change.
-#
-# Deliberately the anon key, never the service-role key: these functions must
-# not be able to do more than the signed-in user could.
+#   ANTHROPIC_API_KEY  - your Anthropic API key
+#   ANTHROPIC_MODEL    - e.g. claude-opus-4-8 (no default; missing config fails loudly)
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
