@@ -5,7 +5,7 @@
 // Function, or a locally templated draft when the function is offline). Per the
 // spec, ALL AI content requires human approval before it is saved: the draft is
 // editable and nothing is persisted until the coach clicks Approve and save.
-// Approved drafts are appended to the teacher record (teacher.aiDrafts) and an
+// Approved drafts become rows in `ai_drafts` (supabase/migrations/006) and an
 // audit entry is logged. Nothing is ever sent automatically.
 // ---------------------------------------------------------------------------
 
@@ -20,10 +20,6 @@ import {
   generateDraft,
   localDraft,
 } from '../lib/coachAssist.js';
-
-function genId() {
-  return 'ai_' + Math.random().toString(36).slice(2, 9);
-}
 
 // One-line explanation of what each generator does, shown before the coach
 // clicks Generate so the trigger and its effect are never a surprise.
@@ -45,9 +41,11 @@ const EXPLANATIONS = {
 };
 
 export default function CoachAssistant({ rollup, observations, assessments, initialKind, onClose }) {
-  const { user, db, teachers } = useApp();
+  const { user, db, teachers, aiDrafts } = useApp();
   const teacher = teachers.find((t) => t.id === rollup.teacher.id) || rollup.teacher;
-  const saved = teacher.aiDrafts || [];
+  const saved = aiDrafts
+    .filter((d) => d.teacherId === teacher.id)
+    .sort((a, b) => (a.approvedAt < b.approvedAt ? 1 : -1));
 
   const [kind, setKind] = useState(initialKind || 'summary');
   const [language, setLanguage] = useState('en'); // 'en' | 'es'
@@ -57,6 +55,7 @@ export default function CoachAssistant({ rollup, observations, assessments, init
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [savedNote, setSavedNote] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   async function generate() {
     setLoading(true);
@@ -88,26 +87,43 @@ export default function CoachAssistant({ rollup, observations, assessments, init
     }
   }
 
-  function approveAndSave() {
-    const entry = {
-      id: genId(),
-      kind,
-      label: labelFor(kind),
-      text: draft,
-      source,
-      language: draftLanguage,
-      approvedBy: user.name,
-      approvedAt: new Date().toISOString(),
-    };
-    db.update(
-      'teachers',
-      teacher.id,
-      { aiDrafts: [...saved, entry] },
-      `approved AI ${labelFor(kind).toLowerCase()}`
-    );
-    setSavedNote(`${labelFor(kind)} approved and saved to ${teacher.name}'s record.`);
-    setDraft('');
-    setSource(null);
+  // Awaited, and the draft is only cleared once the row is actually in the
+  // database. The old version fired an unawaited write at a column that did not
+  // exist, then announced success and emptied the textarea regardless -- so a
+  // report the coach had generated, read, and edited was gone with no copy
+  // anywhere and no audit entry. It failed that way on every single use.
+  async function approveAndSave() {
+    if (saving || !draft.trim()) return;
+    setSaving(true);
+    setError(null);
+    setSavedNote(null);
+    try {
+      await db.insert(
+        'aiDrafts',
+        {
+          teacherId: teacher.id,
+          kind,
+          label: labelFor(kind),
+          text: draft,
+          source,
+          language: draftLanguage,
+          approvedBy: user.name,
+          approvedAt: new Date().toISOString(),
+        },
+        `approved AI ${labelFor(kind).toLowerCase()}`
+      );
+      setSavedNote(`${labelFor(kind)} approved and saved to ${teacher.name}'s record.`);
+      setDraft('');
+      setSource(null);
+    } catch (err) {
+      // Leave the draft on screen. Whatever went wrong, the coach's edited text
+      // is the one thing that must not disappear.
+      setError(
+        `That did not save, and your draft is still here. ${err.message || 'Please try again.'}`
+      );
+    } finally {
+      setSaving(false);
+    }
   }
 
   function discard() {
@@ -226,8 +242,12 @@ export default function CoachAssistant({ rollup, observations, assessments, init
               onChange={(e) => setDraft(e.target.value)}
             />
             <div className="row" style={{ gap: 10 }}>
-              <button className="btn btn--primary" onClick={approveAndSave} disabled={!draft.trim()}>
-                <Icon name="interventions" /> Approve and save
+              <button
+                className="btn btn--primary"
+                onClick={approveAndSave}
+                disabled={!draft.trim() || saving}
+              >
+                <Icon name="interventions" /> {saving ? 'Saving…' : 'Approve and save'}
               </button>
               <button className="btn btn--ghost" onClick={discard}>
                 Discard
@@ -243,7 +263,8 @@ export default function CoachAssistant({ rollup, observations, assessments, init
           <div>
             <div className="section-title">Approved drafts on record ({saved.length})</div>
             <ul className="timeline">
-              {[...saved].reverse().map((d) => (
+              {/* `saved` is already newest-first from the query above. */}
+              {saved.map((d) => (
                 <li key={d.id} className="timeline__item">
                   <div className="timeline__time">
                     {new Date(d.approvedAt).toLocaleString()} · approved by {d.approvedBy}

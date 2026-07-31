@@ -26,6 +26,7 @@ const EMPTY_COLLECTIONS = {
   actionPlanTemplates: [],
   actionPlans: [],
   goals: [],
+  aiDrafts: [],
   auditLog: [],
 };
 
@@ -40,6 +41,7 @@ const OWNED_COLLECTIONS = new Set([
   'interventions',
   'actionPlans',
   'goals',
+  'aiDrafts',
 ]);
 
 export function AppProvider({ children }) {

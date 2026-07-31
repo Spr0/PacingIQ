@@ -22,6 +22,7 @@ const TABLES = {
   actionPlanTemplates: 'action_plan_templates',
   actionPlans: 'action_plans',
   goals: 'goals',
+  aiDrafts: 'ai_drafts',
   auditLog: 'audit_log',
 };
 
@@ -267,7 +268,15 @@ export async function replaceSchedule(entries) {
     .from('schedule_entries')
     .insert(entries.map(patchToSnake))
     .select();
-  check('replaceSchedule (insert)', error);
+  if (error) {
+    // The delete above has already committed -- these are two round trips with
+    // no transaction around them. A generic "please try again" here reads as
+    // "nothing happened", when in fact the schedule is now empty, so say so.
+    throw new Error(
+      'The old schedule was cleared but the new one did not save, so the schedule is empty right now. ' +
+        `Press Generate again to lay one out. (${error.message})`
+    );
+  }
   return rowsToCamel(data);
 }
 
