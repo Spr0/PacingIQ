@@ -178,19 +178,32 @@ export function isOverdue(action) {
   return d != null && d < 0;
 }
 
-// Assessment trend: compare two most recent unit tests.
+// Only tests that have actually been SCORED can say anything about a trend.
+// An upcoming assessment is stored with avgScore null, and `|| 0` turned that
+// into a zero -- so importing a year-long pacing calendar (which creates a null
+// row per unit test) made every teacher read as a collapse: 88 then 91 then an
+// un-taken test reported "down", raised assessmentConcern, and added 15 to the
+// risk score. It hit most of the roster, and the leadership-facing report
+// showed a red downward arrow next to a rising score.
+function scored(list) {
+  return list.filter((a) => a.avgScore != null);
+}
+
+// Assessment trend: compare the two most recent SCORED unit tests.
 export function assessmentTrend(list) {
-  if (list.length < 2) return 'flat';
-  const [newest, prev] = list;
-  const delta = (newest.avgScore || 0) - (prev.avgScore || 0);
+  const done = scored(list);
+  if (done.length < 2) return 'flat';
+  const [newest, prev] = done;
+  const delta = newest.avgScore - prev.avgScore;
   if (delta >= 2) return 'up';
   if (delta <= -2) return 'down';
   return 'flat';
 }
 
 export function assessmentConcern(list) {
-  if (!list.length) return false;
-  const newest = list[0];
+  const done = scored(list);
+  if (!done.length) return false;
+  const newest = done[0];
   if ((newest.proficiencyPct ?? 100) < 70) return true;
   return assessmentTrend(list) === 'down';
 }

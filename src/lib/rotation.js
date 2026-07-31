@@ -246,14 +246,25 @@ function placeAcrossDays(teacherIds, fromDate, usedByDate) {
 // their visit date (and their done marks); everyone else is randomised across
 // the days still to come.
 export function planReshuffle({ teachers, entries, observations, fromDate }) {
-  // "Already seen" is measured against the compliance window, NOT the earliest
-  // scheduled date. Deriving it from the schedule was wrong precisely when it
-  // matters: after a bad regenerate the whole schedule can sit in the future,
-  // so visits made yesterday fell before the window and were ignored -- the
-  // teachers already observed got reshuffled again, which is the complaint
-  // this function exists to fix. Anyone seen within SEEN_WINDOW_DAYS stays put.
+  // "Already seen" needs two bounds, and getting either wrong breaks a live
+  // schedule.
+  //
+  // Lower bound: look back SEEN_WINDOW_DAYS, not to the earliest scheduled
+  // date. Deriving it from the schedule failed precisely when it mattered --
+  // after a bad regenerate the whole schedule sits in the future, so visits
+  // made yesterday fell outside the window and got reshuffled again, which is
+  // the complaint this function exists to fix.
+  //
+  // Upper bound: a pin may never land BEFORE TODAY. A 10-weekday cycle is
+  // about 14 calendar days, so the lookback also catches visits from the
+  // PREVIOUS cycle. Pinning those put teachers on dates already gone -- in the
+  // worst case every row moved into the past, the page read 100% done with
+  // nobody scheduled, and cycleHasEnded() then flipped true and let the
+  // auto-advance wipe the table. A teacher seen last cycle is due again, so
+  // they get re-placed rather than pinned.
   const since = new Date(today());
   since.setDate(since.getDate() - SEEN_WINDOW_DAYS);
+  const todayStr = isoDate(today());
   const visited = visitedDates(observations, isoDate(since));
   const byTeacher = new Map(entries.map((e) => [e.teacherId, e]));
 
@@ -262,11 +273,18 @@ export function planReshuffle({ teachers, entries, observations, fromDate }) {
   teachers.forEach((t) => {
     const entry = byTeacher.get(t.id);
     const visitDate = visited.get(t.id);
-    if (visitDate) {
+    if (visitDate && visitDate >= todayStr) {
       // Seen this cycle: pin to the day it happened, keeping any done mark.
       pinned.push({ teacherId: t.id, scheduledDate: visitDate, doneAt: entry?.doneAt ?? null, doneBy: entry?.doneBy ?? null });
-    } else if (entry?.doneAt) {
+    } else if (visitDate && entry && entry.scheduledDate === visitDate) {
+      // The visit is already recorded on its own day within this schedule --
+      // leave that row exactly where it is rather than moving it forward.
+      pinned.push({ teacherId: t.id, scheduledDate: entry.scheduledDate, doneAt: entry.doneAt ?? null, doneBy: entry.doneBy ?? null });
+    } else if (entry?.doneAt && entry.scheduledDate >= todayStr) {
       // Ticked off by hand without an observation: keep it exactly as it is.
+      pinned.push({ teacherId: t.id, scheduledDate: entry.scheduledDate, doneAt: entry.doneAt, doneBy: entry.doneBy ?? null });
+    } else if (entry?.doneAt) {
+      // Hand-ticked on a day now past: keep the record where it happened.
       pinned.push({ teacherId: t.id, scheduledDate: entry.scheduledDate, doneAt: entry.doneAt, doneBy: entry.doneBy ?? null });
     } else {
       toPlace.push(t.id);
