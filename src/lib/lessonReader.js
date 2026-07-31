@@ -8,6 +8,8 @@
 // draft pending human review; this module never saves or applies anything.
 // ---------------------------------------------------------------------------
 
+import { authHeaders } from './functionAuth.js';
+
 // Calls the serverless function. On failure it throws an Error whose
 // `reachable` flag distinguishes two cases, matching the coach-assist client:
 //   reachable === false  the function is not deployed / not running.
@@ -15,11 +17,13 @@
 // `document` is an optional { fileBase64, mediaType } for the PDF-upload path;
 // when present the function hands it to the model as a native document block.
 export async function analyzeLessonPlan(lessonText, context, document) {
+  const headers = await authHeaders({ 'Content-Type': 'application/json' });
+
   let res;
   try {
     res = await fetch('/.netlify/functions/lesson-reader', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ lessonText, context, document }),
     });
   } catch {
