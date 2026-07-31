@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { isoDate } from './dates.js';
+import { authHeaders } from './functionAuth.js';
 
 // A full-year calendar with prose unit descriptions can take longer than the
 // serverless function's timeout to read in one shot (a 504). So large text is
@@ -65,11 +66,13 @@ async function mapLimit(items, limit, fn) {
 // One call to the serverless function. Same reachable/not-reachable error
 // contract as the coach-assist and lesson-reader clients.
 async function callCalendarReader(payload) {
+  const headers = await authHeaders({ 'Content-Type': 'application/json' });
+
   let res;
   try {
     res = await fetch('/.netlify/functions/calendar-reader', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
     });
   } catch {
