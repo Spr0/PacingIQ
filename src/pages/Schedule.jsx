@@ -148,7 +148,11 @@ export default function Schedule() {
           // way is what keeps a later reshuffle from moving it.
           ...(entry.scheduledDate !== visitedOn ? { scheduledDate: visitedOn } : {}),
         },
-        'marked a scheduled visit done'
+        // Names the teacher and the day in the audit entry itself. The row id
+        // alone was useless the moment the row was gone -- when a bad
+        // regenerate deleted two ticked-off visits, the log proved they had
+        // existed but not who they were for.
+        `marked visit done: ${entry.teacher?.name || 'unknown'} on ${visitedOn}`
       );
       setMarking(null);
     } catch (err) {
@@ -161,7 +165,12 @@ export default function Schedule() {
     // An entry that's done only because an observation exists has nothing to
     // un-tick -- the observation is the record. Only the manual flag clears.
     try {
-      await db.update('scheduleEntries', entry.id, { doneAt: null, doneBy: null }, 'un-marked a scheduled visit');
+      await db.update(
+        'scheduleEntries',
+        entry.id,
+        { doneAt: null, doneBy: null },
+        `un-marked visit: ${entry.teacher?.name || 'unknown'} on ${entry.scheduledDate}`
+      );
     } catch (err) {
       setError(err.message || 'Could not update that visit.');
     }
