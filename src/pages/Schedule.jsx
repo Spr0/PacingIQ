@@ -105,6 +105,33 @@ export default function Schedule() {
     }
   }
 
+  // Appends the next cycle after the last scheduled day, leaving every existing
+  // row where it is.
+  //
+  // This is deliberately NOT generate(). generate() goes through
+  // replaceSchedule, which deletes every row in the table before inserting.
+  // Running that from the effect below meant the first person to open this page
+  // on a Monday -- any writable role, no click, no confirmation -- destroyed the
+  // previous cycle along with every done_at tick on it. Per migration 004 those
+  // ticks are the only record of a visit walked without a write-up, so that
+  // evidence was gone with nothing to recover it from. The three manual buttons
+  // are all confirmed; this path never was.
+  async function appendNextCycle(fromDate) {
+    if (!teachers.length || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const rows = buildCycleEntries(teachers, fromDate);
+      if (rows.length) {
+        await db.addScheduleEntries(rows, 'auto-generated the next observation cycle');
+      }
+    } catch (err) {
+      setError(err.message || 'Could not lay out the next cycle. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Auto-advance: once the last scheduled day is in the past, lay out the next
   // cycle so the rotation never silently stops. Guarded by a ref so it fires
   // at most once per mount, and only for a role that may write.
@@ -113,7 +140,7 @@ export default function Schedule() {
     if (!days.length || !cycleHasEnded(days)) return;
     autoRan.current = true;
     const from = isoDate(nextWeekday(parse(days[days.length - 1].date) || today()));
-    generate(from, 'auto-generated the next observation cycle');
+    appendNextCycle(from);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [days, writable, teachers.length, busy]);
 
