@@ -1,0 +1,4 @@
+{
+  "//": "The app is an ESM package (root package.json sets type: module), but these functions are CommonJS -- exports.handler and require(). Without this file esbuild treats them as ESM, exports.handler never becomes a real export, and Netlify answers every call with 502 Runtime.HandlerNotFound. This scopes the format to this directory only; it does not affect the Vite build.",
+  "type": "commonjs"
+}
