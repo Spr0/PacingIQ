@@ -425,7 +425,12 @@ h1, h2, h3, h4, h5 {
 .modal { background: var(--surface-card); border-radius: var(--radius-2xl); box-shadow: var(--shadow-xl); width: 100%; max-width: 720px; max-height: 88vh; overflow: auto; }
 .modal__head { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--border-subtle); position: sticky; top: 0; background: var(--surface-card); z-index: 1; }
 .modal__head h3 { font-family: var(--font-display); font-size: var(--text-heading); }
-.modal__body { padding: 22px; }
+/* The bottom padding clears the sticky footer below. Without it there is a band
+   of scroll positions -- roughly 50px wide, measured -- where the last control
+   in the body sits underneath the footer bar: still on screen, but every click
+   lands on .modal__foot instead. On a long draft table that is exactly where
+   "Approve and Import" ends up, and the button reads as simply broken. */
+.modal__body { padding: 22px; padding-bottom: 88px; }
 .modal__foot { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 22px; border-top: 1px solid var(--border-subtle); position: sticky; bottom: 0; background: var(--surface-card); }
 .modal__close { border: 0; background: transparent; font-size: 22px; cursor: pointer; color: var(--text-muted); line-height: 1; }
 

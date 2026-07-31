@@ -10,7 +10,7 @@
 // reviews every row and clicks Approve and Import.
 // ---------------------------------------------------------------------------
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Modal, Field } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { useApp } from '../state/AppContext.jsx';
@@ -81,6 +81,38 @@ export default function PacingCalendarReader({ onClose }) {
   const outOfRangeCount = weeks.filter(
     (w) => outsideSchoolYear(w.weekOf, schoolYear) || outsideSchoolYear(w.assessmentDate, schoolYear)
   ).length;
+
+  // Teacher and Subject sit at the top of the modal, and a year-long import
+  // puts a hundred-odd draft rows between them and the Approve button. So a
+  // coach who skipped one scrolls to the bottom, finds a greyed-out button, and
+  // has nothing telling her why -- only the out-of-range case ever explained
+  // itself. Every reason is named here, next to the button, with a control that
+  // jumps back to the field that needs filling.
+  const teacherRef = useRef(null);
+  const subjectRef = useRef(null);
+
+  const blockers = [];
+  if (!teacherId) {
+    blockers.push({ text: 'No teacher chosen yet.', action: 'Choose a teacher', ref: teacherRef });
+  } else if (subjectOptions.length > 0 && !subject) {
+    blockers.push({
+      text: `${selectedTeacher.name} covers more than one subject, so the import needs to know which one.`,
+      action: 'Choose a subject',
+      ref: subjectRef,
+    });
+  }
+  if (outOfRangeCount > 0) {
+    blockers.push({
+      text: `${outOfRangeCount} highlighted date${outOfRangeCount === 1 ? '' : 's'} fall outside ${schoolYear}-${schoolYear + 1}.`,
+    });
+  }
+
+  function jumpTo(ref) {
+    const el = ref?.current;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.focus({ preventScroll: true });
+  }
 
   async function handleFile(e) {
     const file = e.target.files?.[0];
@@ -318,6 +350,7 @@ export default function PacingCalendarReader({ onClose }) {
           <Field label="Teacher">
             <select
               className="select"
+              ref={teacherRef}
               value={teacherId}
               onChange={(e) => {
                 setTeacherId(e.target.value);
@@ -334,7 +367,7 @@ export default function PacingCalendarReader({ onClose }) {
           </Field>
           {subjectOptions.length > 0 && (
             <Field label="Subject" hint="this teacher covers multiple subjects">
-              <select className="select" value={subject} onChange={(e) => setSubject(e.target.value)}>
+              <select className="select" ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)}>
                 <option value="">Select a subject</option>
                 {subjectOptions.map((s) => (
                   <option key={s} value={s}>
@@ -616,26 +649,42 @@ export default function PacingCalendarReader({ onClose }) {
               + Add week
             </button>
 
+            {blockers.length > 0 && (
+              <div className="banner banner--warn">
+                <div style={{ marginBottom: 6 }}>
+                  The draft is ready, but the import needs{' '}
+                  {blockers.length === 1 ? 'one more thing' : `${blockers.length} more things`}:
+                </div>
+                <ul style={{ margin: 0, paddingLeft: 18 }}>
+                  {blockers.map((b) => (
+                    <li key={b.text} style={{ marginBottom: 4 }}>
+                      {b.text}{' '}
+                      {b.ref && (
+                        <button className="btn btn--ghost btn--sm" onClick={() => jumpTo(b.ref)}>
+                          {b.action}
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             <div className="row row--wrap" style={{ gap: 10 }}>
               <button
                 className="btn btn--primary"
                 onClick={approveAndImport}
-                disabled={!teacherId || (subjectOptions.length > 0 && !subject) || outOfRangeCount > 0 || importing}
+                disabled={blockers.length > 0 || importing}
               >
                 <Icon name="interventions" /> {importing ? 'Importing…' : 'Approve and Import'}
               </button>
               {outOfRangeCount > 0 && (
-                <>
-                  <span className="small muted">
-                    Fix the {outOfRangeCount} highlighted date{outOfRangeCount === 1 ? '' : 's'} to import.
-                  </span>
-                  {/* Bulk escape hatch: on a big calendar, clearing the bad dates by
-                      hand is dozens of clicks. A null date is safe -- rows without
-                      one are skipped on import rather than saved wrong. */}
-                  <button className="btn btn--ghost btn--sm" onClick={clearOutOfRangeDates}>
-                    Clear the {outOfRangeCount} bad date{outOfRangeCount === 1 ? '' : 's'}
-                  </button>
-                </>
+                /* Bulk escape hatch: on a big calendar, clearing the bad dates by
+                   hand is dozens of clicks. A null date is safe -- rows without
+                   one are skipped on import rather than saved wrong. */
+                <button className="btn btn--ghost btn--sm" onClick={clearOutOfRangeDates}>
+                  Clear the {outOfRangeCount} bad date{outOfRangeCount === 1 ? '' : 's'}
+                </button>
               )}
             </div>
           </div>
