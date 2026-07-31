@@ -16,6 +16,7 @@ import { Icon } from './icons.jsx';
 import { useApp } from '../state/AppContext.jsx';
 import { analyzeCalendar, localCalendarAnalysis } from '../lib/calendarReader.js';
 import { extractUploadedFile, sheetLooksLikePacing, UPLOAD_FILE_ACCEPT } from '../lib/fileExtract.js';
+import { planCalendarImport } from '../lib/calendarImport.js';
 
 // Mirrors MAX_CHARS_PER_CALL in lib/calendarReader.js, only to show the coach
 // roughly how many model calls a selection will cost before she commits to it.
@@ -54,7 +55,11 @@ function outsideSchoolYear(dateStr, startYear) {
 export default function PacingCalendarReader({ onClose }) {
   const { rollups, pacingEntries, assessments, db } = useApp();
 
-  const [teacherId, setTeacherId] = useState('');
+  // A grade-level team shares one scope-and-sequence, so the same reviewed draft
+  // usually needs to land on several teachers. Reading it once and importing to
+  // all of them costs one set of model calls instead of one per teacher.
+  const [teacherIds, setTeacherIds] = useState([]);
+  const [teacherFilter, setTeacherFilter] = useState('');
   const [subject, setSubject] = useState('');
   // Anchors undated rows to the right year. District calendars routinely write
   // "8/19-10/18" with no year, and without this the model guessed -- a real
@@ -72,12 +77,30 @@ export default function PacingCalendarReader({ onClose }) {
   const [fileName, setFileName] = useState('');
   const [extracting, setExtracting] = useState(false);
   const [importing, setImporting] = useState(false);
+  // A re-import across a whole team can be hundreds of sequential writes, each
+  // reloading the store. Without a running count that reads as a hung modal.
+  const [importProgress, setImportProgress] = useState(null);
   // Multi-sheet workbooks: every tab, plus which ones are selected for reading.
   const [sheets, setSheets] = useState([]);
   const [selectedSheets, setSelectedSheets] = useState([]);
 
-  const selectedTeacher = rollups.find((r) => r.teacher.id === teacherId)?.teacher;
-  const subjectOptions = selectedTeacher?.subjects || [];
+  const allTeachers = rollups.map((r) => r.teacher);
+  const selectedTeachers = allTeachers.filter((t) => teacherIds.includes(t.id));
+  const visibleTeachers = teacherFilter.trim()
+    ? allTeachers.filter((t) => t.name.toLowerCase().includes(teacherFilter.trim().toLowerCase()))
+    : allTeachers;
+
+  // The union across everyone selected, not the intersection: a team is often
+  // one teacher tagged [ELA, Math] alongside others tagged [ELA] only, and an
+  // intersection would hide the very subject they share.
+  const subjectOptions = [...new Set(selectedTeachers.flatMap((t) => t.subjects || []))];
+  // Whoever is selected but doesn't list the chosen subject. Not an error --
+  // subject tagging is patchy and the coach knows her own team -- but she
+  // should see it before it becomes a row filed under the wrong heading.
+  const subjectMismatches = subject
+    ? selectedTeachers.filter((t) => (t.subjects || []).length > 0 && !(t.subjects || []).includes(subject))
+    : [];
+
   const outOfRangeCount = weeks.filter(
     (w) => outsideSchoolYear(w.weekOf, schoolYear) || outsideSchoolYear(w.assessmentDate, schoolYear)
   ).length;
@@ -92,11 +115,14 @@ export default function PacingCalendarReader({ onClose }) {
   const subjectRef = useRef(null);
 
   const blockers = [];
-  if (!teacherId) {
+  if (selectedTeachers.length === 0) {
     blockers.push({ text: 'No teacher chosen yet.', action: 'Choose a teacher', ref: teacherRef });
   } else if (subjectOptions.length > 0 && !subject) {
     blockers.push({
-      text: `${selectedTeacher.name} covers more than one subject, so the import needs to know which one.`,
+      text:
+        selectedTeachers.length === 1
+          ? `${selectedTeachers[0].name} covers more than one subject, so the import needs to know which one.`
+          : 'The teachers selected cover more than one subject between them, so the import needs to know which one.',
       action: 'Choose a subject',
       ref: subjectRef,
     });
@@ -105,6 +131,20 @@ export default function PacingCalendarReader({ onClose }) {
     blockers.push({
       text: `${outOfRangeCount} highlighted date${outOfRangeCount === 1 ? '' : 's'} fall outside ${schoolYear}-${schoolYear + 1}.`,
     });
+  }
+
+  function selectTeachers(ids) {
+    setTeacherIds(ids);
+    // Subject options are derived from who is selected, so a subject nobody
+    // selected offers any more must not survive as a stale value on the import.
+    const stillOffered = new Set(
+      allTeachers.filter((t) => ids.includes(t.id)).flatMap((t) => t.subjects || [])
+    );
+    if (subject && !stillOffered.has(subject)) setSubject('');
+  }
+
+  function toggleTeacher(id) {
+    selectTeachers(teacherIds.includes(id) ? teacherIds.filter((x) => x !== id) : [...teacherIds, id]);
   }
 
   function jumpTo(ref) {
@@ -191,10 +231,19 @@ export default function PacingCalendarReader({ onClose }) {
     setError(null);
     setImportedNote(null);
     const yearNote = `School year: ${schoolYear}-${schoolYear + 1}. Every date must fall within July ${schoolYear} to June ${schoolYear + 1}.`;
-    const context = selectedTeacher
-      ? `Teacher: ${selectedTeacher.name}. Subject: ${subject || selectedTeacher.subject || 'n/a'}. Grade: ${
-          selectedTeacher.gradeLevel || 'n/a'
-        }. ${yearNote}`
+    // One calendar read serves every selected teacher, so the context describes
+    // the group. Grade is only stated when they all share one -- naming a grade
+    // that only some of them teach would invite the model to lean on it.
+    const grades = [...new Set(selectedTeachers.map((t) => t.gradeLevel).filter(Boolean))];
+    const context = selectedTeachers.length
+      ? [
+          selectedTeachers.length === 1
+            ? `Teacher: ${selectedTeachers[0].name}.`
+            : `Teachers (${selectedTeachers.length}, sharing this calendar): ${selectedTeachers.map((t) => t.name).join(', ')}.`,
+          `Subject: ${subject || selectedTeachers[0].subject || 'n/a'}.`,
+          `Grade: ${grades.length === 1 ? grades[0] : 'n/a'}.`,
+          yearNote,
+        ].join(' ')
       : yearNote;
     try {
       const extracted = await analyzeCalendar(fileDoc ? '' : calendarText, context, fileDoc || undefined);
@@ -253,77 +302,56 @@ export default function PacingCalendarReader({ onClose }) {
   // ten-table reload, any failure silently swallowed, the reported counts
   // describing what was attempted rather than what landed -- and the modal
   // stayed open afterwards, so there was no sign it had worked at all.
+  //
+  // The same reviewed draft is applied to every selected teacher. The planning
+  // lives in lib/calendarImport.js so it can be tested on its own.
   async function approveAndImport() {
-    if (!teacherId || importing) return;
-    if (subjectOptions.length > 0 && !subject) return;
+    if (blockers.length > 0 || importing) return;
 
-    const toInsert = [];
-    const toUpdate = [];
-    const newAssessments = [];
-
-    weeks.forEach((w) => {
-      if (w.weekOf && (w.unit || w.lesson || w.standard)) {
-        const existing = pacingEntries.find(
-          (p) => p.teacherId === teacherId && p.weekOf === w.weekOf && (p.subject || '') === (subject || '')
-        );
-        const patch = {
-          teacherId,
-          subject: subject || '',
-          currentUnit: w.unit || '',
-          currentLesson: w.lesson || '',
-          currentStandard: w.standard || '',
-        };
-        if (existing) toUpdate.push({ id: existing.id, patch });
-        else
-          toInsert.push({
-            ...patch,
-            weekOf: w.weekOf,
-            daysBehind: 0,
-            exceptionReason: '',
-            notes: 'Imported from pacing calendar.',
-          });
-      }
-
-      if (w.assessmentName && w.assessmentDate) {
-        const dup =
-          assessments.some(
-            (a) => a.teacherId === teacherId && a.name === w.assessmentName && a.date === w.assessmentDate
-          ) ||
-          // Guard within this batch too: a year-long calendar repeats
-          // "End-of-Unit Assessment" and the existing rows can't catch a
-          // duplicate that is only being created now.
-          newAssessments.some((a) => a.name === w.assessmentName && a.date === w.assessmentDate);
-        if (!dup) {
-          newAssessments.push({
-            teacherId,
-            name: w.assessmentName,
-            date: w.assessmentDate,
-            avgScore: null,
-            proficiencyPct: null,
-          });
-        }
-      }
+    const { toInsert, toUpdate, newAssessments } = planCalendarImport({
+      weeks,
+      teachers: selectedTeachers,
+      subject,
+      pacingEntries,
+      assessments,
     });
 
     setImporting(true);
     setError(null);
     setImportedNote(null);
+    setImportProgress(null);
     try {
-      const audit = 'imported pacing calendar with AI';
-      for (const u of toUpdate) await db.update('pacingEntries', u.id, u.patch, audit);
+      const audit =
+        selectedTeachers.length === 1
+          ? 'imported pacing calendar with AI'
+          : `imported pacing calendar with AI for ${selectedTeachers.length} teachers`;
+      // Updates are one request each; inserts go in a single batch across every
+      // teacher, so a team import is not N times the round trips.
+      for (let i = 0; i < toUpdate.length; i++) {
+        setImportProgress(`Updating existing week ${i + 1} of ${toUpdate.length}…`);
+        await db.update('pacingEntries', toUpdate[i].id, toUpdate[i].patch, audit);
+      }
+      if (toInsert.length) setImportProgress(`Writing ${toInsert.length} pacing weeks…`);
       await db.insertMany('pacingEntries', toInsert, audit);
+      if (newAssessments.length) setImportProgress(`Writing ${newAssessments.length} assessments…`);
       await db.insertMany('assessments', newAssessments, audit);
+
       const weekCount = toInsert.length + toUpdate.length;
+      const who =
+        selectedTeachers.length === 1
+          ? selectedTeachers[0].name
+          : `${selectedTeachers.length} teachers (${selectedTeachers.map((t) => t.name).join(', ')})`;
       setImportedNote(
         `Imported ${weekCount} pacing week${weekCount === 1 ? '' : 's'} and ${newAssessments.length} assessment${
           newAssessments.length === 1 ? '' : 's'
-        } for ${selectedTeacher?.name || 'this teacher'}. You can close this window.`
+        } across ${who}. You can close this window.`
       );
       setWeeks([]); // the draft has been consumed; nothing left to review
     } catch (err) {
       setError(err.message || 'Some of that did not import. Nothing was changed for the rows that failed.');
     } finally {
       setImporting(false);
+      setImportProgress(null);
     }
   }
 
@@ -346,38 +374,111 @@ export default function PacingCalendarReader({ onClose }) {
           assessments.
         </p>
 
-        <div className="form-row">
-          <Field label="Teacher">
+        {/* Teacher picker. A filter box rather than a bare list of fifty, and
+            the same checklist shape as the sheet picker further down so the two
+            multi-selects in this modal behave alike. */}
+        <Field
+          label={`Teachers${teacherIds.length ? ` · ${teacherIds.length} selected` : ''}`}
+          hint="one calendar can be imported to a whole grade-level team at once"
+        >
+          <input
+            className="input"
+            ref={teacherRef}
+            value={teacherFilter}
+            onChange={(e) => setTeacherFilter(e.target.value)}
+            placeholder="Filter by name…"
+          />
+        </Field>
+        <div className="stack" style={{ gap: 8 }}>
+          <div className="row row--between row--wrap" style={{ gap: 8 }}>
+            <span className="small muted">
+              {visibleTeachers.length} of {allTeachers.length} shown
+            </span>
+            <span className="row" style={{ gap: 6 }}>
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={() => selectTeachers([...new Set([...teacherIds, ...visibleTeachers.map((t) => t.id)])])}
+                disabled={visibleTeachers.length === 0}
+              >
+                Select these
+              </button>
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={() => selectTeachers([])}
+                disabled={teacherIds.length === 0}
+              >
+                Clear
+              </button>
+            </span>
+          </div>
+          <ul className="checklist" style={{ maxHeight: 210, overflowY: 'auto' }}>
+            {visibleTeachers.map((t) => {
+              const on = teacherIds.includes(t.id);
+              return (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className={`check ${on ? 'check--done' : 'check--todo'}`}
+                    onClick={() => toggleTeacher(t.id)}
+                    aria-pressed={on}
+                    aria-label={`${on ? 'Deselect' : 'Select'} ${t.name}`}
+                    style={{ cursor: 'pointer', border: 'none', font: 'inherit' }}
+                  >
+                    {on ? '✓' : ''}
+                  </button>
+                  <span
+                    style={{ flex: 1, minWidth: 0, cursor: 'pointer', color: on ? 'var(--text-strong)' : 'var(--text-muted)' }}
+                    onClick={() => toggleTeacher(t.id)}
+                  >
+                    {t.name}
+                    {t.gradeLevel && <span className="muted small" style={{ marginLeft: 8 }}>{t.gradeLevel}</span>}
+                  </span>
+                  <span className="muted small" style={{ whiteSpace: 'nowrap' }}>
+                    {(t.subjects || []).join(', ')}
+                  </span>
+                </li>
+              );
+            })}
+            {visibleTeachers.length === 0 && (
+              <li>
+                <span className="muted small">No teacher matches “{teacherFilter}”.</span>
+              </li>
+            )}
+          </ul>
+        </div>
+
+        {subjectOptions.length > 0 && (
+          <Field
+            label="Subject"
+            hint={
+              selectedTeachers.length === 1
+                ? 'this teacher covers multiple subjects'
+                : 'applied to every teacher selected'
+            }
+          >
             <select
               className="select"
-              ref={teacherRef}
-              value={teacherId}
-              onChange={(e) => {
-                setTeacherId(e.target.value);
-                setSubject('');
-              }}
+              ref={subjectRef}
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              style={{ maxWidth: 320 }}
             >
-              <option value="">Select a teacher</option>
-              {rollups.map((r) => (
-                <option key={r.teacher.id} value={r.teacher.id}>
-                  {r.teacher.name}
+              <option value="">Select a subject</option>
+              {subjectOptions.map((s) => (
+                <option key={s} value={s}>
+                  {s}
                 </option>
               ))}
             </select>
           </Field>
-          {subjectOptions.length > 0 && (
-            <Field label="Subject" hint="this teacher covers multiple subjects">
-              <select className="select" ref={subjectRef} value={subject} onChange={(e) => setSubject(e.target.value)}>
-                <option value="">Select a subject</option>
-                {subjectOptions.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-        </div>
+        )}
+        {subjectMismatches.length > 0 && (
+          <p className="small muted" style={{ margin: 0 }}>
+            {subjectMismatches.map((t) => t.name).join(', ')}{' '}
+            {subjectMismatches.length === 1 ? 'is not tagged' : 'are not tagged'} for {subject}. The import
+            will still file it under {subject} for {subjectMismatches.length === 1 ? 'them' : 'all of them'}.
+          </p>
+        )}
 
         <Field label="School year" hint="anchors dates written without a year, e.g. &quot;8/19-10/18&quot;">
           <select
@@ -676,8 +777,16 @@ export default function PacingCalendarReader({ onClose }) {
                 onClick={approveAndImport}
                 disabled={blockers.length > 0 || importing}
               >
-                <Icon name="interventions" /> {importing ? 'Importing…' : 'Approve and Import'}
+                <Icon name="interventions" />{' '}
+                {importing
+                  ? 'Importing…'
+                  : selectedTeachers.length > 1
+                    ? `Approve and Import for ${selectedTeachers.length} teachers`
+                    : 'Approve and Import'}
               </button>
+              {importing && importProgress && (
+                <span className="small muted">{importProgress}</span>
+              )}
               {outOfRangeCount > 0 && (
                 /* Bulk escape hatch: on a big calendar, clearing the bad dates by
                    hand is dozens of clicks. A null date is safe -- rows without
