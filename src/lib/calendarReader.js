@@ -9,7 +9,7 @@
 // ---------------------------------------------------------------------------
 
 import { isoDate } from './dates.js';
-import { authHeaders } from './functionAuth.js';
+import { authHeaders, staleBundleError } from './functionAuth.js';
 
 // A full-year calendar with prose unit descriptions can take longer than the
 // serverless function's timeout to read in one shot (a 504). So large text is
@@ -98,6 +98,9 @@ async function callCalendarReader(payload) {
     err.reachable = false;
     throw err;
   }
+
+  const stale = await staleBundleError(res);
+  if (stale) throw stale;
 
   // Any error status means the function IS deployed but failed (config error,
   // timeout, truncated output). Surface it instead of masking it as offline.

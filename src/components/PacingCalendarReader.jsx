@@ -80,6 +80,8 @@ export default function PacingCalendarReader({ onClose }) {
   // A re-import across a whole team can be hundreds of sequential writes, each
   // reloading the store. Without a running count that reads as a hung modal.
   const [importProgress, setImportProgress] = useState(null);
+  // Set when a function rejects a request this tab is too old to make properly.
+  const [staleBundle, setStaleBundle] = useState(false);
   // Multi-sheet workbooks: every tab, plus which ones are selected for reading.
   const [sheets, setSheets] = useState([]);
   const [selectedSheets, setSelectedSheets] = useState([]);
@@ -250,7 +252,12 @@ export default function PacingCalendarReader({ onClose }) {
       setWeeks(extracted.map((w) => ({ id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '', ...w })));
       setSource('ai');
     } catch (e) {
-      if (e.reachable && e.timedOut) {
+      if (e.staleBundle) {
+        // Nothing here can be retried until the page is reloaded, so say only
+        // that and give the button rather than dressing it as an AI failure.
+        setStaleBundle(true);
+        setError(e.message);
+      } else if (e.reachable && e.timedOut) {
         // The old copy blamed ANTHROPIC_API_KEY/ANTHROPIC_MODEL for every
         // failure, including this one -- which sent people to check config
         // that was fine. A gateway timeout means the section was too big to
@@ -348,6 +355,7 @@ export default function PacingCalendarReader({ onClose }) {
       );
       setWeeks([]); // the draft has been consumed; nothing left to review
     } catch (err) {
+      if (err.staleBundle) setStaleBundle(true);
       setError(err.message || 'Some of that did not import. Nothing was changed for the rows that failed.');
     } finally {
       setImporting(false);
@@ -613,7 +621,20 @@ export default function PacingCalendarReader({ onClose }) {
           </button>
         </div>
 
-        {error && <div className="banner banner--danger">{error}</div>}
+        {error && (
+          <div className="banner banner--danger">
+            <div>{error}</div>
+            {staleBundle && (
+              <button
+                className="btn btn--sm"
+                style={{ marginTop: 8 }}
+                onClick={() => window.location.reload()}
+              >
+                Reload PacingIQ
+              </button>
+            )}
+          </div>
+        )}
 
         {weeks.length > 0 && (
           <div className="stack" style={{ gap: 8 }}>

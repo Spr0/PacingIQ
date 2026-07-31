@@ -8,7 +8,7 @@
 // draft pending human review; this module never saves or applies anything.
 // ---------------------------------------------------------------------------
 
-import { authHeaders } from './functionAuth.js';
+import { authHeaders, staleBundleError } from './functionAuth.js';
 
 // Calls the serverless function. On failure it throws an Error whose
 // `reachable` flag distinguishes two cases, matching the coach-assist client:
@@ -49,6 +49,9 @@ export async function analyzeLessonPlan(lessonText, context, document) {
     err.reachable = false;
     throw err;
   }
+
+  const stale = await staleBundleError(res);
+  if (stale) throw stale;
 
   // Any error status means the function IS deployed but failed. Surface it
   // instead of masking it as an offline demo read.

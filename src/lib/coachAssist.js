@@ -10,7 +10,7 @@
 
 import { formatDate } from './dates.js';
 import { recommendedAction } from './intelligence.js';
-import { authHeaders } from './functionAuth.js';
+import { authHeaders, staleBundleError } from './functionAuth.js';
 
 export const CONTENT_TYPES = [
   { key: 'summary', label: 'Coaching summary' },
@@ -121,6 +121,9 @@ export async function generateDraft(kind, context, language = 'en') {
     err.reachable = false;
     throw err;
   }
+
+  const stale = await staleBundleError(res);
+  if (stale) throw stale;
 
   // Any error status means the function IS deployed but failed. Surface it
   // instead of masking it with a demo draft.

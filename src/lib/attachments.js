@@ -9,7 +9,7 @@
 // here carries the access token.
 // ---------------------------------------------------------------------------
 
-import { authHeaders } from './functionAuth.js';
+import { authHeaders, staleBundleError } from './functionAuth.js';
 
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 export const ALLOWED_ATTACHMENT_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
@@ -38,6 +38,9 @@ export async function uploadAttachment(file, teacherId, observationId) {
     err.reachable = false;
     throw err;
   }
+
+  const stale = await staleBundleError(res);
+  if (stale) throw stale;
 
   const data = await res.json();
   if (!res.ok || data.error) {
@@ -75,6 +78,8 @@ export async function fetchAttachmentUrl(key) {
     headers: await authHeaders(),
   });
   if (!res.ok) {
+    const stale = await staleBundleError(res);
+    if (stale) throw stale;
     let detail = '';
     try {
       detail = (await res.json()).error || '';
