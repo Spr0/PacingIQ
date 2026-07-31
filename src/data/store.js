@@ -232,6 +232,19 @@ export async function remove(collection, id) {
 // one request. Used by the randomizer (see src/pages/Schedule.jsx) instead
 // of the generic insert() above, which would mean one request per row for a
 // roster that can be dozens of teachers.
+// Adds rows without touching the ones already there -- for slotting a newly
+// added teacher in mid-cycle, where a full replace would reshuffle (and
+// un-tick) everybody else.
+export async function addScheduleEntries(entries) {
+  if (!entries.length) return [];
+  const { data, error } = await supabase
+    .from('schedule_entries')
+    .insert(entries.map(patchToSnake))
+    .select();
+  check('addScheduleEntries', error);
+  return rowsToCamel(data);
+}
+
 export async function replaceSchedule(entries) {
   const { error: delError } = await supabase.from('schedule_entries').delete().not('id', 'is', null);
   check('replaceSchedule (clear)', delError);

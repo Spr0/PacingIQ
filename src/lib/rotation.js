@@ -13,7 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { today, parse, isoDate } from './dates.js';
-import { isRealObservation } from './intelligence.js';
+import { isRealObservation, SEEN_WINDOW_DAYS } from './intelligence.js';
 
 export const CYCLE_WEEKDAYS = 10; // two school weeks
 export const PER_DAY_CAP = 8; // most visits we'd ask of one day
@@ -164,4 +164,129 @@ export function thisWeek(days) {
 export function cycleHasEnded(days) {
   if (!days.length) return false;
   return days[days.length - 1].date < isoDate(today());
+}
+
+// ---------------------------------------------------------------------------
+// Changing a schedule that is already part-way through.
+//
+// Regenerating used to delete every row and lay out a fresh random cycle,
+// which destroyed the record of visits already made: teachers seen yesterday
+// were reshuffled onto future dates and stopped showing as done. Adding one
+// new teacher should not disturb anyone who has already been visited.
+//
+// So a visit, once made, PINS that teacher to the day it happened, and the
+// only thing a reshuffle moves is who hasn't been seen yet.
+// ---------------------------------------------------------------------------
+
+// The date each teacher was actually visited during this cycle, from real
+// classroom observations (a coaching note is not a visit -- see
+// isRealObservation). Most recent wins if there are several.
+export function visitedDates(observations, sinceDate) {
+  const out = new Map();
+  observations
+    .filter((o) => isRealObservation(o) && (!sinceDate || o.date >= sinceDate))
+    .forEach((o) => {
+      const prev = out.get(o.teacherId);
+      if (!prev || o.date > prev) out.set(o.teacherId, o.date);
+    });
+  return out;
+}
+
+// Spreads `teacherIds` over weekdays from `fromDate`, skipping past days and
+// leaving room for whoever is already pinned to those days.
+function placeAcrossDays(teacherIds, fromDate, usedByDate) {
+  const entries = [];
+  if (!teacherIds.length) return entries;
+  // Never schedule into the past: an unvisited teacher on a day that has gone
+  // can never be ticked off.
+  let cursor = snapToWeekday(parse(fromDate) || today());
+  const floor = snapToWeekday(today());
+  if (cursor < floor) cursor = floor;
+
+  // How many days to spread over: a full cycle, or more if the roster needs it.
+  const dayCount = Math.max(
+    CYCLE_WEEKDAYS,
+    Math.ceil(teacherIds.length / PER_DAY_CAP)
+  );
+  const dates = [];
+  for (let i = 0; i < dayCount; i += 1) {
+    dates.push(isoDate(cursor));
+    cursor = nextWeekday(cursor);
+  }
+
+  const counts = evenSplit(teacherIds.length, dates.length);
+  let i = 0;
+  dates.forEach((date, di) => {
+    const already = usedByDate.get(date) || 0;
+    let room = Math.max(0, PER_DAY_CAP - already);
+    let want = counts[di];
+    while (want > 0 && room > 0 && i < teacherIds.length) {
+      entries.push({ teacherId: teacherIds[i], scheduledDate: date });
+      i += 1;
+      want -= 1;
+      room -= 1;
+    }
+  });
+  // Anyone left over (every day hit the cap) goes onto following weekdays.
+  while (i < teacherIds.length) {
+    const date = isoDate(cursor);
+    const already = usedByDate.get(date) || 0;
+    let room = Math.max(0, PER_DAY_CAP - already);
+    while (room > 0 && i < teacherIds.length) {
+      entries.push({ teacherId: teacherIds[i], scheduledDate: date });
+      i += 1;
+      room -= 1;
+    }
+    cursor = nextWeekday(cursor);
+  }
+  return entries;
+}
+
+// The full set of rows a reshuffle should end up with. Visited teachers keep
+// their visit date (and their done marks); everyone else is randomised across
+// the days still to come.
+export function planReshuffle({ teachers, entries, observations, fromDate }) {
+  // "Already seen" is measured against the compliance window, NOT the earliest
+  // scheduled date. Deriving it from the schedule was wrong precisely when it
+  // matters: after a bad regenerate the whole schedule can sit in the future,
+  // so visits made yesterday fell before the window and were ignored -- the
+  // teachers already observed got reshuffled again, which is the complaint
+  // this function exists to fix. Anyone seen within SEEN_WINDOW_DAYS stays put.
+  const since = new Date(today());
+  since.setDate(since.getDate() - SEEN_WINDOW_DAYS);
+  const visited = visitedDates(observations, isoDate(since));
+  const byTeacher = new Map(entries.map((e) => [e.teacherId, e]));
+
+  const pinned = [];
+  const toPlace = [];
+  teachers.forEach((t) => {
+    const entry = byTeacher.get(t.id);
+    const visitDate = visited.get(t.id);
+    if (visitDate) {
+      // Seen this cycle: pin to the day it happened, keeping any done mark.
+      pinned.push({ teacherId: t.id, scheduledDate: visitDate, doneAt: entry?.doneAt ?? null, doneBy: entry?.doneBy ?? null });
+    } else if (entry?.doneAt) {
+      // Ticked off by hand without an observation: keep it exactly as it is.
+      pinned.push({ teacherId: t.id, scheduledDate: entry.scheduledDate, doneAt: entry.doneAt, doneBy: entry.doneBy ?? null });
+    } else {
+      toPlace.push(t.id);
+    }
+  });
+
+  const usedByDate = new Map();
+  pinned.forEach((p) => usedByDate.set(p.scheduledDate, (usedByDate.get(p.scheduledDate) || 0) + 1));
+
+  const placed = placeAcrossDays(shuffled(toPlace), fromDate || isoDate(today()), usedByDate);
+  return [...pinned, ...placed];
+}
+
+// Rows for teachers who aren't on the schedule at all -- used to slot a newly
+// added teacher in without touching anybody else.
+export function planAddMissing({ teachers, entries, fromDate }) {
+  const scheduled = new Set(entries.map((e) => e.teacherId));
+  const missing = teachers.filter((t) => !scheduled.has(t.id)).map((t) => t.id);
+  if (!missing.length) return [];
+  const usedByDate = new Map();
+  entries.forEach((e) => usedByDate.set(e.scheduledDate, (usedByDate.get(e.scheduledDate) || 0) + 1));
+  return placeAcrossDays(shuffled(missing), fromDate || isoDate(today()), usedByDate);
 }

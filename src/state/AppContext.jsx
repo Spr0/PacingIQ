@@ -106,6 +106,12 @@ export function AppProvider({ children }) {
         await refresh();
         return rows;
       },
+      async addScheduleEntries(entries, auditAction) {
+        const rows = await store.addScheduleEntries(entries);
+        if (auditAction) await store.logAudit(user, auditAction, `${rows.length} scheduled visit(s)`);
+        await refresh();
+        return rows;
+      },
       async audit(action, detail) {
         await store.logAudit(user, action, detail);
         await refresh();

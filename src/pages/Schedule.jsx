@@ -16,6 +16,8 @@ import { can } from '../lib/permissions.js';
 import { today, parse, isoDate, formatDate } from '../lib/dates.js';
 import {
   buildCycleEntries,
+  planReshuffle,
+  planAddMissing,
   groupSchedule,
   cycleHasEnded,
   snapToWeekday,
@@ -52,6 +54,8 @@ export default function Schedule() {
   // the key rather than assuming -- that way deploying ahead of the migration
   // hides the button instead of offering one that errors when clicked.
   const doneSupported = scheduleEntries.some((e) => 'doneAt' in e);
+  // Teachers added since the schedule was made, so the button can say how many.
+  const missingCount = teachers.filter((t) => !scheduleEntries.some((e) => e.teacherId === t.id)).length;
 
   async function generate(fromDate, auditAction = 'generated observation schedule') {
     if (!teachers.length || busy) return;
@@ -61,6 +65,39 @@ export default function Schedule() {
       await db.replaceSchedule(buildCycleEntries(teachers, fromDate), auditAction);
     } catch (err) {
       setError(err.message || 'Failed to generate the schedule. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Re-randomises only the teachers still to be seen. Anyone already visited
+  // keeps -- and is moved onto -- the day the visit actually happened, so a
+  // reshuffle never erases the record of work done.
+  async function reshuffleUpcoming() {
+    if (!teachers.length || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const plan = planReshuffle({ teachers, entries: scheduleEntries, observations, fromDate: isoDate(today()) });
+      await db.replaceSchedule(plan, 'reshuffled the upcoming observation schedule');
+    } catch (err) {
+      setError(err.message || 'Could not reshuffle the schedule. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Slots teachers who aren't on the schedule into the days still to come,
+  // leaving every existing row alone.
+  async function addMissing() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const rows = planAddMissing({ teachers, entries: scheduleEntries, fromDate: isoDate(today()) });
+      if (rows.length) await db.addScheduleEntries(rows, 'added new teachers to the observation schedule');
+    } catch (err) {
+      setError(err.message || 'Could not add those teachers. Please try again.');
     } finally {
       setBusy(false);
     }
@@ -94,9 +131,19 @@ export default function Schedule() {
     if (busy) return;
     // An entry that's done only because an observation exists has nothing to
     // un-tick -- the observation is the record. Only the manual flag toggles.
+    //
+    // Marking done also moves the visit onto TODAY when it was scheduled for
+    // another day: if you walk into a classroom a week early, the schedule
+    // should say you were there today, not still promise a visit later. That
+    // also pins it, so a later reshuffle leaves it alone.
+    const todayStr = isoDate(today());
     const patch = entry.doneAt
       ? { doneAt: null, doneBy: null }
-      : { doneAt: new Date().toISOString(), doneBy: user.name };
+      : {
+          doneAt: new Date().toISOString(),
+          doneBy: user.name,
+          ...(entry.scheduledDate !== todayStr ? { scheduledDate: todayStr } : {}),
+        };
     try {
       await db.update(
         'scheduleEntries',
@@ -162,14 +209,43 @@ export default function Schedule() {
             </>
           )}
           {writable ? (
-            <button
-              className="btn btn--primary btn--sm"
-              onClick={() => generate(startDate)}
-              disabled={busy || teachers.length === 0}
-            >
-              <Icon name="shuffle" />{' '}
-              {busy ? 'Randomizing…' : totalVisits ? 'Randomize again' : 'Randomize schedule'}
-            </button>
+            totalVisits === 0 ? (
+              <button
+                className="btn btn--primary btn--sm"
+                onClick={() => generate(startDate)}
+                disabled={busy || teachers.length === 0}
+              >
+                <Icon name="shuffle" /> {busy ? 'Randomizing…' : 'Randomize schedule'}
+              </button>
+            ) : (
+              <>
+                {/* Three separate actions, because one "Randomize again" that
+                    silently wiped completed visits is what caused a real coach
+                    to lose the record of a day's work. */}
+                {missingCount > 0 && (
+                  <button className="btn btn--primary btn--sm" onClick={addMissing} disabled={busy}>
+                    <Icon name="teachers" /> Add {missingCount} new teacher{missingCount === 1 ? '' : 's'}
+                  </button>
+                )}
+                <button className="btn btn--sm" onClick={reshuffleUpcoming} disabled={busy}>
+                  <Icon name="shuffle" /> {busy ? 'Working…' : 'Reshuffle upcoming'}
+                </button>
+                <button
+                  className="btn btn--sm"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        'Start a brand new cycle? This clears the whole schedule, including visits already marked done, and randomises everyone again.'
+                      )
+                    )
+                      generate(startDate, 'started a new observation cycle');
+                  }}
+                  disabled={busy}
+                >
+                  Start new cycle
+                </button>
+              </>
+            )
           ) : (
             <span className="muted small">View only. Editing is limited to the coach role.</span>
           )}
