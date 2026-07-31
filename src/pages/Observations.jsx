@@ -407,7 +407,10 @@ export default function Observations() {
   // from the UI, and its attachments go with it -- the blobs are deleted here
   // rather than orphaned in storage with no record pointing at them.
   async function removeObservation(o) {
-    const who = teacherName(o.teacherId);
+    // teacherName is a lookup MAP, not a function -- calling it threw a
+    // TypeError above the try block, so Delete did nothing at all and the
+    // catch that would have shown an error never ran.
+    const who = teacherName[o.teacherId] || 'this teacher';
     if (!window.confirm(`Delete the observation for ${who} on ${formatDate(o.date)}? This cannot be undone.`)) return;
     setListError(null);
     try {
@@ -442,6 +445,12 @@ export default function Observations() {
       resetFormUI();
     } catch (err) {
       setSaveError(err.message || 'Failed to save this observation. Please try again.');
+    } finally {
+      // MUST be in a finally. Clearing this only in the catch meant that after
+      // one successful save the flag stayed true, `save()` returned early on
+      // its own guard, and every later observation on that page visit was
+      // unsaveable behind a greyed-out "Saving…" button -- with the typed form
+      // lost on navigating away. resetFormUI does not touch it.
       setSaving(false);
     }
   }
