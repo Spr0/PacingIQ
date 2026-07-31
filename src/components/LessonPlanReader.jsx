@@ -13,7 +13,8 @@ import { useState } from 'react';
 import { Modal, Field } from './ui.jsx';
 import { Icon } from './icons.jsx';
 import { useApp } from '../state/AppContext.jsx';
-import { isoDate } from '../lib/dates.js';
+import { isoDate, formatDate } from '../lib/dates.js';
+import { pickCurrentWeek } from '../lib/intelligence.js';
 import { analyzeLessonPlan, localLessonAnalysis } from '../lib/lessonReader.js';
 import { extractUploadedFile, UPLOAD_FILE_ACCEPT } from '../lib/fileExtract.js';
 
@@ -28,6 +29,7 @@ export default function LessonPlanReader({ teacher, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [appliedNote, setAppliedNote] = useState(null);
+  const [applying, setApplying] = useState(false);
   // PDF-upload path: { fileBase64, mediaType } handed to the model as a document
   // block. Text files (CSV/Excel/TXT) instead fill the textarea below.
   const [fileDoc, setFileDoc] = useState(null);
@@ -102,12 +104,17 @@ export default function LessonPlanReader({ teacher, onClose }) {
     setResult((r) => ({ ...r, [key]: value }));
   }
 
-  function applyToPacing() {
-    if (!result) return;
+  async function applyToPacing() {
+    if (!result || applying) return;
     if (subjectOptions.length > 0 && !subject) return;
 
-    const weeks = pacingEntries.map((p) => p.weekOf).filter(Boolean).sort();
-    const currentWeek = weeks.length ? weeks[weeks.length - 1] : isoDate();
+    // pickCurrentWeek, not max(weekOf). Taking the newest week across every
+    // teacher's entries meant that once anyone imported a year-long pacing
+    // calendar, "this week" resolved to next May: the read was filed months in
+    // the future, the banner reported success, and the teacher's actual current
+    // week was untouched. This is the same bug already fixed in Pacing.jsx --
+    // this file was missed at the time.
+    const currentWeek = pickCurrentWeek(pacingEntries)?.weekOf || isoDate();
     const existing = pacingEntries.find(
       (p) =>
         p.teacherId === teacher.id &&
@@ -123,16 +130,27 @@ export default function LessonPlanReader({ teacher, onClose }) {
       currentStandard: result.standard || (existing && existing.currentStandard) || '',
     };
 
-    if (existing) {
-      db.update('pacingEntries', existing.id, patch, 'applied AI lesson read to pacing');
-    } else {
-      db.insert(
-        'pacingEntries',
-        { ...patch, weekOf: currentWeek, daysBehind: 0, exceptionReason: '', notes: '' },
-        'applied AI lesson read to pacing'
-      );
+    setApplying(true);
+    setError(null);
+    setAppliedNote(null);
+    try {
+      if (existing) {
+        await db.update('pacingEntries', existing.id, patch, 'applied AI lesson read to pacing');
+      } else {
+        await db.insert(
+          'pacingEntries',
+          { ...patch, weekOf: currentWeek, daysBehind: 0, exceptionReason: '', notes: '' },
+          'applied AI lesson read to pacing'
+        );
+      }
+      // Names the week rather than saying "current week", so a wrong target is
+      // visible on the spot instead of being discovered on the Pacing page.
+      setAppliedNote(`Applied to ${teacher.name}'s pacing for the week of ${formatDate(currentWeek)}.`);
+    } catch (err) {
+      setError(err.message || 'That did not save to pacing. Nothing was changed.');
+    } finally {
+      setApplying(false);
     }
-    setAppliedNote(`Applied to ${teacher.name}'s current-week pacing.`);
   }
 
   function discard() {
@@ -287,9 +305,9 @@ export default function LessonPlanReader({ teacher, onClose }) {
               <button
                 className="btn btn--primary"
                 onClick={applyToPacing}
-                disabled={subjectOptions.length > 0 && !subject}
+                disabled={(subjectOptions.length > 0 && !subject) || applying}
               >
-                <Icon name="pacing" /> Apply to this week's pacing
+                <Icon name="pacing" /> {applying ? 'Applying…' : "Apply to this week's pacing"}
               </button>
               <button className="btn btn--ghost" onClick={discard}>
                 Discard

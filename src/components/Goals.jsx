@@ -81,12 +81,29 @@ export default function Goals({ teacherId, teacherName, goals, db, writable, del
     }
   }
 
-  function deleteGoal(goal) {
-    db.remove('goals', goal.id, 'deleted goal');
+  // Confirmed, awaited, and reported. This used to fire the delete off with no
+  // confirmation, no await, and no catch: one misclick destroyed a goal with no
+  // prompt and no way to tell whether it had actually gone.
+  async function deleteGoal(goal) {
+    if (!window.confirm(`Delete the goal "${goal.title}"? This cannot be undone.`)) return;
+    setSaveError(null);
+    try {
+      await db.remove('goals', goal.id, 'deleted goal');
+    } catch (err) {
+      setSaveError(err.message || 'That goal was not deleted.');
+    }
   }
 
-  function changeStatus(goal, status) {
-    db.update('goals', goal.id, { status, updatedAt: isoDate() }, 'updated goal');
+  // The status select reverted silently for anyone but the creator: RLS refuses
+  // the update, nothing was awaited, and the dropdown snapped back on the next
+  // refresh with no explanation.
+  async function changeStatus(goal, status) {
+    setSaveError(null);
+    try {
+      await db.update('goals', goal.id, { status, updatedAt: isoDate() }, 'updated goal');
+    } catch (err) {
+      setSaveError(err.message || 'That status change did not save.');
+    }
   }
 
   return (
@@ -101,6 +118,9 @@ export default function Goals({ teacherId, teacherName, goals, db, writable, del
         )
       }
     >
+      {/* Also rendered outside the modal: a refused status change or delete
+          happens straight from the list, and used to leave no trace at all. */}
+      {!modal && saveError && <div className="banner banner--danger">{saveError}</div>}
       {sorted.length === 0 ? (
         <Empty icon="🎯">No goals set for this teacher yet.</Empty>
       ) : (

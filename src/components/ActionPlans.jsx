@@ -122,13 +122,28 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable,
     }
   }
 
-  function deletePlan(plan) {
-    db.remove('actionPlans', plan.id, 'deleted action plan');
+  // Confirmed, awaited, reported. This was a bare unawaited delete: one misclick
+  // destroyed a teacher's whole action plan with no prompt and no way to know
+  // whether it had gone.
+  async function deletePlan(plan) {
+    if (!window.confirm(`Delete the action plan "${plan.title}"? This cannot be undone.`)) return;
+    setPlanSaveError(null);
+    try {
+      await db.remove('actionPlans', plan.id, 'deleted action plan');
+    } catch (err) {
+      setPlanSaveError(err.message || 'That action plan was not deleted.');
+    }
   }
 
-  function changeStepStatus(plan, stepId, status) {
+  // Reverted silently for anyone but the plan's creator.
+  async function changeStepStatus(plan, stepId, status) {
     const steps = plan.steps.map((s) => (s.id === stepId ? { ...s, status } : s));
-    db.update('actionPlans', plan.id, { steps, updatedAt: isoDate() }, 'updated action plan');
+    setPlanSaveError(null);
+    try {
+      await db.update('actionPlans', plan.id, { steps, updatedAt: isoDate() }, 'updated action plan');
+    } catch (err) {
+      setPlanSaveError(err.message || 'That step change did not save.');
+    }
   }
 
   // --- Common templates ------------------------------------------------------
@@ -200,8 +215,23 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable,
     }
   }
 
-  function deleteTemplate(tpl) {
-    db.remove('actionPlanTemplates', tpl.id, 'deleted action plan template');
+  // Templates are shared across the whole school, so this one misclick took a
+  // resource away from every coach and admin at once -- with no confirmation,
+  // no await, and no error if it failed. The prompt says so explicitly.
+  async function deleteTemplate(tpl) {
+    if (
+      !window.confirm(
+        `Delete the template "${tpl.title}"? It is shared school-wide, so it will disappear for everyone. This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setTemplateSaveError(null);
+    try {
+      await db.remove('actionPlanTemplates', tpl.id, 'deleted action plan template');
+    } catch (err) {
+      setTemplateSaveError(err.message || 'That template was not deleted.');
+    }
   }
 
   return (
@@ -222,6 +252,11 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable,
           Pre-built plans reusable across any teacher. Start a teacher's plan from one of these, or edit
           them here to keep the library current.
         </p>
+        {/* Outside the modal too: a refused template delete happens from this
+            list and previously left no trace. */}
+        {!templateModal && templateSaveError && (
+          <div className="banner banner--danger">{templateSaveError}</div>
+        )}
         {templates.length === 0 ? (
           <Empty icon="🗂">No templates yet.</Empty>
         ) : (
@@ -283,6 +318,9 @@ export default function ActionPlans({ teacherId, plans, templates, db, writable,
           )
         }
       >
+        {!planModal && planSaveError && (
+          <div className="banner banner--danger">{planSaveError}</div>
+        )}
         {sortedPlans.length === 0 ? (
           <Empty icon="📝">No action plans for this teacher yet.</Empty>
         ) : (

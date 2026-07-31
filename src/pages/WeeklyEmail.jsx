@@ -49,6 +49,8 @@ export default function WeeklyEmail() {
   const { rollups, teachers, assessments, interventions, db, user } = useApp();
   const coach = user;
   const [sentAt, setSentAt] = useState(null);
+  const [marking, setMarking] = useState(false);
+  const [sendError, setSendError] = useState(null);
 
   const behind = useMemo(
     () => rollups.filter((r) => r.pacingStatus !== 'green').sort((a, b) => b.daysBehind - a.daysBehind),
@@ -115,9 +117,21 @@ export default function WeeklyEmail() {
     year: 'numeric',
   });
 
-  function markSent() {
-    db.audit('sent weekly intelligence email', `To: ${coach.name} (${coach.label})`);
-    setSentAt(new Date());
+  // The whole point of this button is the audit entry -- there is no email to
+  // send. Claiming "Logged as sent" without waiting for that write meant the
+  // one thing it does could fail and still report success.
+  async function markSent() {
+    if (marking) return;
+    setMarking(true);
+    setSendError(null);
+    try {
+      await db.audit('sent weekly intelligence email', `To: ${coach.name} (${coach.label})`);
+      setSentAt(new Date());
+    } catch (err) {
+      setSendError(err.message || 'That was not written to the audit log, so it is not recorded as sent.');
+    } finally {
+      setMarking(false);
+    }
   }
 
   return (
@@ -130,11 +144,13 @@ export default function WeeklyEmail() {
           <button className="btn btn--sm" onClick={() => window.print()}>
             <Icon name="report" /> Print
           </button>
-          <button className="btn btn--primary btn--sm" onClick={markSent}>
-            <Icon name="mail" /> Mark as sent
+          <button className="btn btn--primary btn--sm" onClick={markSent} disabled={marking}>
+            <Icon name="mail" /> {marking ? 'Logging…' : 'Mark as sent'}
           </button>
         </div>
       </div>
+
+      {sendError && <div className="banner banner--danger">{sendError}</div>}
 
       {sentAt && (
         <div className="banner banner--info">

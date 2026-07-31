@@ -159,6 +159,9 @@ export default function Observations() {
   const [attachmentError, setAttachmentError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [saving, setSaving] = useState(false);
+  // Surfaced inside the view modal when a share toggle is refused. Separate
+  // from saveError, which belongs to the edit form.
+  const [shareError, setShareError] = useState(null);
   // Blob keys uploaded during this form session that aren't attached to a
   // saved record yet. Cleaned up if the form is cancelled before saving.
   const [pendingKeys, setPendingKeys] = useState([]);
@@ -455,30 +458,50 @@ export default function Observations() {
     }
   }
 
-  function toggleShareWhole(obs, checked) {
+  // These two are a privacy control, so a failure that looks like a success is
+  // the worst possible outcome: the checkbox would tick, RLS would refuse the
+  // write, the box would revert on the next refresh, and leadership would
+  // believe the teacher could see feedback she cannot. Both are awaited now,
+  // and a refusal is surfaced.
+  //
+  // The controls are also gated on ownership rather than on `writable`. RLS
+  // allows an observation update only for a coach or the person who wrote it
+  // (migrations/002), so showing the toggle to an AP looking at the principal's
+  // write-up offered a control the database was always going to reject.
+  async function toggleShareWhole(obs, checked) {
     const current = (obs.sharedWithTeacher && obs.sharedWithTeacher.sections) || [];
-    db.update(
-      'observations',
-      obs.id,
-      // Sharing the whole note supersedes section selections; unsharing it
-      // preserves any per-section choices the coach had made.
-      { sharedWithTeacher: { whole: checked, sections: current } },
-      checked ? 'shared observation with teacher' : 'updated observation sharing'
-    );
+    try {
+      await db.update(
+        'observations',
+        obs.id,
+        // Sharing the whole note supersedes section selections; unsharing it
+        // preserves any per-section choices the coach had made.
+        { sharedWithTeacher: { whole: checked, sections: current } },
+        checked ? 'shared observation with teacher' : 'updated observation sharing'
+      );
+      setShareError(null);
+    } catch (err) {
+      setShareError(err.message || 'That sharing change did not save.');
+    }
   }
 
-  function toggleShareSection(obs, sectionKey, checked) {
+  async function toggleShareSection(obs, sectionKey, checked) {
     const shared = obs.sharedWithTeacher || { whole: false, sections: [] };
     const current = shared.sections || [];
     const sections = checked
       ? Array.from(new Set([...current, sectionKey]))
       : current.filter((k) => k !== sectionKey);
-    db.update(
-      'observations',
-      obs.id,
-      { sharedWithTeacher: { whole: !!shared.whole, sections } },
-      'updated observation sharing'
-    );
+    try {
+      await db.update(
+        'observations',
+        obs.id,
+        { sharedWithTeacher: { whole: !!shared.whole, sections } },
+        'updated observation sharing'
+      );
+      setShareError(null);
+    } catch (err) {
+      setShareError(err.message || 'That sharing change did not save.');
+    }
   }
 
   // ---- render -------------------------------------------------------------
@@ -630,7 +653,10 @@ export default function Observations() {
           <ViewBody
             obs={viewing}
             teacherName={teacherName[viewing.teacherId]}
-            writable={writable}
+            // Ownership, not merely write access -- RLS refuses an observation
+            // update from anyone but a coach or the original author.
+            canShare={canEditRecord(roleKey, user.id, viewing)}
+            shareError={shareError}
             onShareWhole={(checked) => toggleShareWhole(viewing, checked)}
             onShareSection={(key, checked) => toggleShareSection(viewing, key, checked)}
           />
@@ -991,9 +1017,9 @@ function AttachmentLink({ attachment }) {
 }
 
 // Read-only rendering of a full observation record, plus the leadership sharing
-// control when the current role can write. Sections and feedback fields the
+// control for whoever may actually change it. Sections and feedback fields the
 // teacher can see are flagged with a "Shared" pill.
-function ViewBody({ obs, teacherName, writable, onShareWhole, onShareSection }) {
+function ViewBody({ obs, teacherName, canShare, shareError, onShareWhole, onShareSection }) {
   const shared = obs.sharedWithTeacher || { whole: false, sections: [] };
   const isShared = (key) => !!shared.whole || (shared.sections || []).includes(key);
 
@@ -1055,9 +1081,10 @@ function ViewBody({ obs, teacherName, writable, onShareWhole, onShareSection }) 
         </ul>
       )}
 
-      {writable && (
+      {canShare && (
         <>
           <div className="section-title">Share with teacher</div>
+          {shareError && <div className="banner banner--danger">{shareError}</div>}
           <label className="row" style={{ gap: 8 }}>
             <input
               type="checkbox"
