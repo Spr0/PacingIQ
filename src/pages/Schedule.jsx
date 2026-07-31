@@ -42,6 +42,8 @@ export default function Schedule() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [calendarHelp, setCalendarHelp] = useState(null); // 'google' | 'outlook'
+  const [marking, setMarking] = useState(null);  // schedule_entry id being ticked off
+  const [markDate, setMarkDate] = useState('');  // which day that visit happened
   const autoRan = useRef(false);
 
   const { days, cycles } = useMemo(
@@ -127,30 +129,39 @@ export default function Schedule() {
     if (target === 'google') window.open(GOOGLE_IMPORT_URL, '_blank', 'noopener,noreferrer');
   }
 
-  async function toggleDone(entry) {
+  // Marking a visit asks WHICH DAY it happened rather than assuming today.
+  // Assuming today was wrong in practice: a coach catching up on paperwork the
+  // next morning would have yesterday's classroom recorded as today's, and had
+  // no way to say otherwise. The date defaults to today for the common case of
+  // ticking off as you go, and can't be in the future.
+  async function markDone(entry, visitedOn) {
     if (busy) return;
-    // An entry that's done only because an observation exists has nothing to
-    // un-tick -- the observation is the record. Only the manual flag toggles.
-    //
-    // Marking done also moves the visit onto TODAY when it was scheduled for
-    // another day: if you walk into a classroom a week early, the schedule
-    // should say you were there today, not still promise a visit later. That
-    // also pins it, so a later reshuffle leaves it alone.
-    const todayStr = isoDate(today());
-    const patch = entry.doneAt
-      ? { doneAt: null, doneBy: null }
-      : {
-          doneAt: new Date().toISOString(),
-          doneBy: user.name,
-          ...(entry.scheduledDate !== todayStr ? { scheduledDate: todayStr } : {}),
-        };
     try {
       await db.update(
         'scheduleEntries',
         entry.id,
-        patch,
-        entry.doneAt ? 'un-marked a scheduled visit' : 'marked a scheduled visit done'
+        {
+          doneAt: new Date().toISOString(),
+          doneBy: user.name,
+          // The visit day IS the schedule day once it has happened, so the
+          // record shows where the work actually landed -- and pinning it this
+          // way is what keeps a later reshuffle from moving it.
+          ...(entry.scheduledDate !== visitedOn ? { scheduledDate: visitedOn } : {}),
+        },
+        'marked a scheduled visit done'
       );
+      setMarking(null);
+    } catch (err) {
+      setError(err.message || 'Could not update that visit.');
+    }
+  }
+
+  async function unmarkDone(entry) {
+    if (busy) return;
+    // An entry that's done only because an observation exists has nothing to
+    // un-tick -- the observation is the record. Only the manual flag clears.
+    try {
+      await db.update('scheduleEntries', entry.id, { doneAt: null, doneBy: null }, 'un-marked a scheduled visit');
     } catch (err) {
       setError(err.message || 'Could not update that visit.');
     }
@@ -348,18 +359,50 @@ export default function Schedule() {
                           <span className="muted small">Scheduled</span>
                         )}
                         {writable && doneSupported && !(e.done && !e.doneAt) && (
-                          <button
-                            className="btn btn--ghost btn--sm no-print"
-                            style={{ marginLeft: 6 }}
-                            onClick={() => toggleDone(e)}
-                            title={
-                              e.doneAt
-                                ? 'Un-mark this visit'
-                                : "Mark as visited without writing up a full observation"
-                            }
-                          >
-                            {e.doneAt ? 'Undo' : 'Done'}
-                          </button>
+                          marking === e.id ? (
+                            // Asks which day, because "I saw her yesterday" is
+                            // the normal case when paperwork happens after the
+                            // fact.
+                            <span className="row no-print" style={{ gap: 4, marginTop: 4 }}>
+                              <input
+                                type="date"
+                                className="input"
+                                style={{ width: 140 }}
+                                value={markDate}
+                                max={isoDate(today())}
+                                autoFocus
+                                onChange={(ev) => setMarkDate(ev.target.value)}
+                              />
+                              <button
+                                className="btn btn--primary btn--sm"
+                                onClick={() => markDone(e, markDate)}
+                                disabled={!markDate}
+                              >
+                                Save
+                              </button>
+                              <button className="btn btn--ghost btn--sm" onClick={() => setMarking(null)}>
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              className="btn btn--ghost btn--sm no-print"
+                              style={{ marginLeft: 6 }}
+                              onClick={() => {
+                                if (e.doneAt) return unmarkDone(e);
+                                setError(null);
+                                setMarkDate(isoDate(today()));
+                                setMarking(e.id);
+                              }}
+                              title={
+                                e.doneAt
+                                  ? 'Un-mark this visit'
+                                  : 'Mark as visited without writing up a full observation — you choose which day'
+                              }
+                            >
+                              {e.doneAt ? 'Undo' : 'Done'}
+                            </button>
+                          )
                         )}
                       </td>
                     </tr>
