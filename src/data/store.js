@@ -200,6 +200,20 @@ export async function insert(collection, record) {
   return rowToCamel(data);
 }
 
+// Inserts many rows in ONE request. An AI calendar import creates dozens of
+// pacing weeks and assessments at once; doing that a row at a time meant a
+// separate insert, audit entry and full ten-table reload per row, which is
+// slow enough to look like nothing happened.
+export async function insertMany(collection, records) {
+  if (!records.length) return [];
+  const { data, error } = await supabase
+    .from(tableFor(collection))
+    .insert(records.map(patchToSnake))
+    .select();
+  check(`insertMany(${collection})`, error);
+  return rowsToCamel(data);
+}
+
 export async function update(collection, id, patch) {
   const { data, error } = await supabase
     .from(tableFor(collection))

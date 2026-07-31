@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { can } from '../lib/permissions.js';
-import { pacingStatus } from '../lib/intelligence.js';
+import { pacingStatus, pickCurrentWeek } from '../lib/intelligence.js';
 import { isoDate } from '../lib/dates.js';
 import { Card, StatusBadge, Badge, Empty, Field, Modal, InfoTip, PACING_STATUS_TOOLTIP } from '../components/ui.jsx';
 import { Icon } from '../components/icons.jsx';
@@ -50,11 +50,13 @@ export default function Pacing() {
   const [saveError, setSaveError] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // The current week is the latest weekOf present in the data.
-  const currentWeek = useMemo(() => {
-    const weeks = pacingEntries.map((p) => p.weekOf).filter(Boolean).sort();
-    return weeks.length ? weeks[weeks.length - 1] : isoDate();
-  }, [pacingEntries]);
+  // The week that has actually started, not the highest weekOf on record. An
+  // imported year-long pacing calendar contains weeks through next May, and
+  // taking the maximum made the page claim the school was in its final week.
+  const currentWeek = useMemo(
+    () => pickCurrentWeek(pacingEntries)?.weekOf || isoDate(),
+    [pacingEntries]
+  );
 
   // One row per teacher, or one row per subject for multi-subject teachers.
   const pacingRows = useMemo(() => {

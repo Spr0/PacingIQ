@@ -71,6 +71,7 @@ export default function PacingCalendarReader({ onClose }) {
   const [fileDoc, setFileDoc] = useState(null);
   const [fileName, setFileName] = useState('');
   const [extracting, setExtracting] = useState(false);
+  const [importing, setImporting] = useState(false);
   // Multi-sheet workbooks: every tab, plus which ones are selected for reading.
   const [sheets, setSheets] = useState([]);
   const [selectedSheets, setSelectedSheets] = useState([]);
@@ -215,12 +216,18 @@ export default function PacingCalendarReader({ onClose }) {
     );
   }
 
-  function approveAndImport() {
-    if (!teacherId) return;
+  // Awaited and batched. This previously fired every write off without waiting:
+  // dozens of separate inserts, each with its own audit entry and a full
+  // ten-table reload, any failure silently swallowed, the reported counts
+  // describing what was attempted rather than what landed -- and the modal
+  // stayed open afterwards, so there was no sign it had worked at all.
+  async function approveAndImport() {
+    if (!teacherId || importing) return;
     if (subjectOptions.length > 0 && !subject) return;
 
-    let pacingCount = 0;
-    let assessmentCount = 0;
+    const toInsert = [];
+    const toUpdate = [];
+    const newAssessments = [];
 
     weeks.forEach((w) => {
       if (w.weekOf && (w.unit || w.lesson || w.standard)) {
@@ -234,38 +241,58 @@ export default function PacingCalendarReader({ onClose }) {
           currentLesson: w.lesson || '',
           currentStandard: w.standard || '',
         };
-        if (existing) {
-          db.update('pacingEntries', existing.id, patch, 'imported pacing calendar with AI');
-        } else {
-          db.insert(
-            'pacingEntries',
-            { ...patch, weekOf: w.weekOf, daysBehind: 0, exceptionReason: '', notes: 'Imported from pacing calendar.' },
-            'imported pacing calendar with AI'
-          );
-        }
-        pacingCount += 1;
+        if (existing) toUpdate.push({ id: existing.id, patch });
+        else
+          toInsert.push({
+            ...patch,
+            weekOf: w.weekOf,
+            daysBehind: 0,
+            exceptionReason: '',
+            notes: 'Imported from pacing calendar.',
+          });
       }
 
       if (w.assessmentName && w.assessmentDate) {
-        const dup = assessments.some(
-          (a) => a.teacherId === teacherId && a.name === w.assessmentName && a.date === w.assessmentDate
-        );
+        const dup =
+          assessments.some(
+            (a) => a.teacherId === teacherId && a.name === w.assessmentName && a.date === w.assessmentDate
+          ) ||
+          // Guard within this batch too: a year-long calendar repeats
+          // "End-of-Unit Assessment" and the existing rows can't catch a
+          // duplicate that is only being created now.
+          newAssessments.some((a) => a.name === w.assessmentName && a.date === w.assessmentDate);
         if (!dup) {
-          db.insert(
-            'assessments',
-            { teacherId, name: w.assessmentName, date: w.assessmentDate, avgScore: null, proficiencyPct: null },
-            'imported pacing calendar with AI'
-          );
-          assessmentCount += 1;
+          newAssessments.push({
+            teacherId,
+            name: w.assessmentName,
+            date: w.assessmentDate,
+            avgScore: null,
+            proficiencyPct: null,
+          });
         }
       }
     });
 
-    setImportedNote(
-      `Imported ${pacingCount} pacing week(s) and ${assessmentCount} upcoming assessment(s) for ${
-        selectedTeacher?.name || 'this teacher'
-      }.`
-    );
+    setImporting(true);
+    setError(null);
+    setImportedNote(null);
+    try {
+      const audit = 'imported pacing calendar with AI';
+      for (const u of toUpdate) await db.update('pacingEntries', u.id, u.patch, audit);
+      await db.insertMany('pacingEntries', toInsert, audit);
+      await db.insertMany('assessments', newAssessments, audit);
+      const weekCount = toInsert.length + toUpdate.length;
+      setImportedNote(
+        `Imported ${weekCount} pacing week${weekCount === 1 ? '' : 's'} and ${newAssessments.length} assessment${
+          newAssessments.length === 1 ? '' : 's'
+        } for ${selectedTeacher?.name || 'this teacher'}. You can close this window.`
+      );
+      setWeeks([]); // the draft has been consumed; nothing left to review
+    } catch (err) {
+      setError(err.message || 'Some of that did not import. Nothing was changed for the rows that failed.');
+    } finally {
+      setImporting(false);
+    }
   }
 
   return (
@@ -593,9 +620,9 @@ export default function PacingCalendarReader({ onClose }) {
               <button
                 className="btn btn--primary"
                 onClick={approveAndImport}
-                disabled={!teacherId || (subjectOptions.length > 0 && !subject) || outOfRangeCount > 0}
+                disabled={!teacherId || (subjectOptions.length > 0 && !subject) || outOfRangeCount > 0 || importing}
               >
-                <Icon name="interventions" /> Approve and Import
+                <Icon name="interventions" /> {importing ? 'Importing…' : 'Approve and Import'}
               </button>
               {outOfRangeCount > 0 && (
                 <>

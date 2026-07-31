@@ -5,7 +5,7 @@
 // All inputs are the raw collections from the store. Nothing here writes state.
 // ---------------------------------------------------------------------------
 
-import { daysSince, daysUntil } from './dates.js';
+import { daysSince, daysUntil, today, isoDate } from './dates.js';
 
 // Pacing thresholds straight from the spec.
 //   Green  : on pace (0 days behind)
@@ -20,18 +20,39 @@ export function pacingStatus(daysBehind) {
 
 export const SEEN_WINDOW_DAYS = 14; // compliance window from the spec
 
-// Most recent pacing entry for a teacher (by weekOf).
+// Which of a set of pacing weeks is the CURRENT one.
+//
+// This used to be "the highest weekOf", which was fine when a coach logged one
+// week at a time but wrong the moment a whole year is imported from a pacing
+// calendar: the newest row is then the last week of the school year, so a
+// teacher in Module 1 in August displayed as being in Module 4 in May.
+//
+// The current week is the latest one that has actually started. If none has
+// (the calendar was imported before term begins) the first upcoming week is
+// what matters, not the final one.
+export function pickCurrentWeek(entries) {
+  if (!entries.length) return null;
+  const sorted = entries.slice().sort((a, b) => (a.weekOf < b.weekOf ? -1 : a.weekOf > b.weekOf ? 1 : 0));
+  const todayStr = isoDate(today());
+  let current = null;
+  for (const e of sorted) {
+    if (e.weekOf && e.weekOf <= todayStr) current = e;
+    else break;
+  }
+  return current || sorted[0];
+}
+
+// The current pacing entry for a teacher.
 export function latestPacing(teacherId, pacingEntries) {
-  return pacingEntries
-    .filter((p) => p.teacherId === teacherId)
-    .sort((a, b) => (a.weekOf < b.weekOf ? 1 : -1))[0] || null;
+  return pickCurrentWeek(pacingEntries.filter((p) => p.teacherId === teacherId));
 }
 
 // Elementary (and any multi-subject) teachers log pacing per subject. Each
 // pacing entry may carry an optional `subject` field; entries without one are
 // grouped together under a single implicit subject, so single-subject
-// teachers behave exactly as before. Returns the latest entry per subject,
-// sorted by subject name.
+// teachers behave exactly as before. Returns the CURRENT entry per subject
+// (see pickCurrentWeek -- not simply the highest weekOf), sorted by subject
+// name.
 export function pacingEntriesBySubject(teacherId, pacingEntries) {
   const mine = pacingEntries.filter((p) => p.teacherId === teacherId);
   const groups = new Map();
@@ -42,9 +63,9 @@ export function pacingEntriesBySubject(teacherId, pacingEntries) {
   });
   return Array.from(groups.entries())
     .map(([subject, entries]) => {
-      const latest = entries.sort((a, b) => (a.weekOf < b.weekOf ? 1 : -1))[0];
-      const daysBehind = Number(latest.daysBehind) || 0;
-      return { subject, pacing: latest, daysBehind, status: pacingStatus(daysBehind) };
+      const current = pickCurrentWeek(entries);
+      const daysBehind = Number(current.daysBehind) || 0;
+      return { subject, pacing: current, daysBehind, status: pacingStatus(daysBehind) };
     })
     .sort((a, b) => (a.subject || '').localeCompare(b.subject || ''));
 }

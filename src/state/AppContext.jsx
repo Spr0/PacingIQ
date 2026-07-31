@@ -89,6 +89,16 @@ export function AppProvider({ children }) {
         await refresh();
         return row;
       },
+      // One request, one audit entry, one refresh -- for bulk imports.
+      async insertMany(collection, records, auditAction) {
+        const stamped = OWNED_COLLECTIONS.has(collection)
+          ? records.map((r) => ({ createdById: user.id, ...r }))
+          : records;
+        const rows = await store.insertMany(collection, stamped);
+        if (auditAction) await store.logAudit(user, auditAction, `${collection}: ${rows.length} row(s)`);
+        await refresh();
+        return rows;
+      },
       async update(collection, id, patch, auditAction) {
         const row = await store.update(collection, id, patch);
         if (auditAction) await store.logAudit(user, auditAction, describe(collection, row));
