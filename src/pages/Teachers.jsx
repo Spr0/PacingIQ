@@ -32,8 +32,9 @@ const STATUS_FILTERS = [
 ];
 
 // The direction a column starts in the first time it is clicked: name and
-// subject A to Z, grade lowest first.
-const DEFAULT_SORT_DIR = { name: 'asc', subject: 'asc', gradeLevel: 'asc' };
+// subject A to Z, grade lowest first. Last Seen starts longest-ago-first,
+// because the reason to sort by it is to find who is overdue a visit.
+const DEFAULT_SORT_DIR = { name: 'asc', subject: 'asc', gradeLevel: 'asc', lastSeen: 'asc' };
 
 const EMPTY_FORM = { name: '', subject: '', subjects: '', gradeLevel: '', assignedAdmin: '' };
 
@@ -99,6 +100,18 @@ export default function Teachers() {
         if (ar == null) return 1;
         if (br == null) return -1;
         return (ar - br) * dir;
+      }
+      if (sort.key === 'lastSeen') {
+        // "Never" is not a blank to be shuffled to the bottom -- it is the
+        // most extreme case of not-recently-seen, so it sorts with the oldest
+        // dates. lastObservation already counts only real classroom visits,
+        // not coaching notes (see isRealObservation).
+        const ad = a.lastObservation?.date || '';
+        const bd = b.lastObservation?.date || '';
+        if (ad === bd) return 0;
+        if (!ad) return -1 * dir;
+        if (!bd) return 1 * dir;
+        return (ad < bd ? -1 : 1) * dir;
       }
       // name and subject: alphabetical, blanks always sort last.
       const av = (sort.key === 'name' ? ta.name : ta.subject) || '';
@@ -197,7 +210,7 @@ export default function Teachers() {
                   Pacing
                   <InfoTip text={PACING_STATUS_TOOLTIP} />
                 </th>
-                <th>Last Seen</th>
+                <SortHeader label="Last Seen" sortKey="lastSeen" sort={sort} onSort={toggleSort} />
                 <th className="num">Open Actions</th>
                 <th>
                   Risk
