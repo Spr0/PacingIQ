@@ -10,6 +10,7 @@
 
 import { isoDate } from './dates.js';
 import { authHeaders, staleBundleError } from './functionAuth.js';
+import { chunkCalendar, splitLongLine } from './calendarChunk.js';
 
 // A full-year calendar with prose unit descriptions can take longer than the
 // serverless function's timeout to read in one shot (a 504). So large text is
@@ -29,25 +30,6 @@ const MAX_CHARS_PER_CALL = 1200;
 // keeps a large file moving while provoking far fewer retries, and a retry
 // costs more wall-clock than the parallelism saves.
 const MAX_CONCURRENT_CALLS = 2;
-
-function chunkCalendar(text, maxChars) {
-  if (!text || text.length <= maxChars) return [text || ''];
-  const lines = text.split('\n');
-  const header = lines.length > 1 && lines[0].length <= 300 ? lines[0] : '';
-  const body = header ? lines.slice(1) : lines;
-  const budget = Math.max(500, maxChars - (header ? header.length + 1 : 0));
-  const chunks = [];
-  let cur = '';
-  for (const line of body) {
-    if (cur && cur.length + line.length + 1 > budget) {
-      chunks.push(cur);
-      cur = '';
-    }
-    cur += (cur ? '\n' : '') + line;
-  }
-  if (cur) chunks.push(cur);
-  return chunks.map((c) => (header ? `${header}\n${c}` : c));
-}
 
 // Runs an async mapper over items with bounded concurrency, preserving order.
 async function mapLimit(items, limit, fn) {
@@ -140,12 +122,19 @@ async function readChunkWithRetry(chunk, context, depth = 0, attempt = 0) {
       await sleep(1500 * 2 ** attempt); // 1.5s, 3s, 6s
       return readChunkWithRetry(chunk, context, depth, attempt + 1);
     }
+    // Give up when we've already gone several levels deep -- at that point it
+    // isn't size that's failing.
+    if (!err.timedOut || depth >= 3) throw err;
     const lines = chunk.split('\n');
-    // Give up splitting when there's nothing left to split or we've already
-    // gone several levels deep -- at that point it isn't size that's failing.
-    if (!err.timedOut || depth >= 3 || lines.length < 2) throw err;
+    // A chunk that is one long line used to end the bisect here (the old guard
+    // was `lines.length < 2`), which is precisely the PDF case: nothing could
+    // be split, so the timeout was final. Halve the line itself instead.
     const mid = Math.ceil(lines.length / 2);
-    const halves = [lines.slice(0, mid).join('\n'), lines.slice(mid).join('\n')];
+    const halves =
+      lines.length >= 2
+        ? [lines.slice(0, mid).join('\n'), lines.slice(mid).join('\n')]
+        : splitLongLine(chunk, Math.ceil(chunk.length / 2));
+    if (halves.length < 2) throw err;
     const out = [];
     for (const half of halves) {
       if (!half.trim()) continue;
@@ -157,14 +146,22 @@ async function readChunkWithRetry(chunk, context, depth = 0, attempt = 0) {
 
 // `document` is an optional { fileBase64, mediaType } for the PDF-upload path;
 // when present the function hands it to the model as a native document block.
-export async function analyzeCalendar(calendarText, context, document) {
+// `onProgress({ done, total })` fires as each section lands. A full-year PDF now
+// splits into dozens of sections read two at a time, which is minutes of work --
+// long enough that a bare "Reading..." reads as a hang.
+export async function analyzeCalendar(calendarText, context, document, onProgress) {
   if (document && document.fileBase64) {
     return callCalendarReader({ context, document });
   }
   const chunks = chunkCalendar(calendarText || '', MAX_CHARS_PER_CALL);
-  const perChunk = await mapLimit(chunks, MAX_CONCURRENT_CALLS, (chunk) =>
-    readChunkWithRetry(chunk, context)
-  );
+  let done = 0;
+  if (onProgress) onProgress({ done: 0, total: chunks.length });
+  const perChunk = await mapLimit(chunks, MAX_CONCURRENT_CALLS, async (chunk) => {
+    const weeks = await readChunkWithRetry(chunk, context);
+    done += 1;
+    if (onProgress) onProgress({ done, total: chunks.length });
+    return weeks;
+  });
   return perChunk.flat();
 }
 

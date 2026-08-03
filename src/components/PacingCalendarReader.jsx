@@ -82,6 +82,8 @@ export default function PacingCalendarReader({ onClose }) {
   const [importProgress, setImportProgress] = useState(null);
   // Set when a function rejects a request this tab is too old to make properly.
   const [staleBundle, setStaleBundle] = useState(false);
+  // { done, total } while a multi-section read is in flight.
+  const [readProgress, setReadProgress] = useState(null);
   // Multi-sheet workbooks: every tab, plus which ones are selected for reading.
   const [sheets, setSheets] = useState([]);
   const [selectedSheets, setSelectedSheets] = useState([]);
@@ -248,7 +250,12 @@ export default function PacingCalendarReader({ onClose }) {
         ].join(' ')
       : yearNote;
     try {
-      const extracted = await analyzeCalendar(fileDoc ? '' : calendarText, context, fileDoc || undefined);
+      const extracted = await analyzeCalendar(
+        fileDoc ? '' : calendarText,
+        context,
+        fileDoc || undefined,
+        ({ done, total }) => setReadProgress(total > 1 ? { done, total } : null)
+      );
       setWeeks(extracted.map((w) => ({ id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '', ...w })));
       setSource('ai');
     } catch (e) {
@@ -279,6 +286,7 @@ export default function PacingCalendarReader({ onClose }) {
       }
     } finally {
       setLoading(false);
+      setReadProgress(null);
     }
   }
 
@@ -617,7 +625,14 @@ export default function PacingCalendarReader({ onClose }) {
             onClick={read}
             disabled={loading || extracting || (!calendarText.trim() && !fileDoc)}
           >
-            <Icon name="sparkle" /> {loading ? 'Reading...' : weeks.length ? 'Re-read Calendar with AI' : 'Read Calendar with AI'}
+            <Icon name="sparkle" />{' '}
+            {loading
+              ? readProgress
+                ? `Reading section ${readProgress.done} of ${readProgress.total}…`
+                : 'Reading…'
+              : weeks.length
+                ? 'Re-read Calendar with AI'
+                : 'Read Calendar with AI'}
           </button>
         </div>
 

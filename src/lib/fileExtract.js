@@ -214,7 +214,26 @@ async function extractPdfText(file) {
   for (let i = 1; i <= doc.numPages; i += 1) {
     const page = await doc.getPage(i);
     const content = await page.getTextContent();
-    pages.push(content.items.map((item) => item.str || '').join(' '));
+    // pdf.js flags the last text item on each visual line with hasEOL. Joining
+    // every item with a space instead -- which is what this did -- collapsed a
+    // whole page into a single line, and a single line is the one thing the
+    // calendar chunker could not subdivide. A text-heavy page then went to the
+    // model whole and timed out, every time, with no size the coach could pick
+    // that would help. Falling back to a space when hasEOL is absent keeps
+    // older or unusual documents reading exactly as before.
+    const lines = [];
+    let line = '';
+    for (const item of content.items) {
+      line += item.str || '';
+      if (item.hasEOL) {
+        if (line.trim()) lines.push(line.trim());
+        line = '';
+      } else {
+        line += ' ';
+      }
+    }
+    if (line.trim()) lines.push(line.trim());
+    pages.push(lines.join('\n'));
   }
   const text = pages.join('\n').trim();
   if (!text) {
