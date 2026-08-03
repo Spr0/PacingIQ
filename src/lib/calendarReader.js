@@ -149,20 +149,44 @@ async function readChunkWithRetry(chunk, context, depth = 0, attempt = 0) {
 // `onProgress({ done, total })` fires as each section lands. A full-year PDF now
 // splits into dozens of sections read two at a time, which is minutes of work --
 // long enough that a bare "Reading..." reads as a hang.
+// Returns { weeks, readSections, failedSections }.
+//
+// A section that will not read no longer destroys the whole import. mapLimit
+// awaits Promise.all, so a single rejection used to reject the entire read: on
+// a long calendar most sections come back fine and one dense one exhausts the
+// bisect, and the coach was shown "that took too long to read in one pass" with
+// every successful section thrown away -- after paying for all of them. Now the
+// weeks that were read are kept and the caller says how many sections were
+// skipped, so she can fill those rows in by hand instead of starting over.
+//
+// If EVERY section fails, that is a real failure rather than a partial read, so
+// the first error is rethrown and the caller's existing handling applies.
 export async function analyzeCalendar(calendarText, context, document, onProgress) {
   if (document && document.fileBase64) {
-    return callCalendarReader({ context, document });
+    const weeks = await callCalendarReader({ context, document });
+    return { weeks, readSections: 1, failedSections: 0 };
   }
   const chunks = chunkCalendar(calendarText || '', MAX_CHARS_PER_CALL);
   let done = 0;
   if (onProgress) onProgress({ done: 0, total: chunks.length });
-  const perChunk = await mapLimit(chunks, MAX_CONCURRENT_CALLS, async (chunk) => {
-    const weeks = await readChunkWithRetry(chunk, context);
-    done += 1;
-    if (onProgress) onProgress({ done, total: chunks.length });
-    return weeks;
+  const outcomes = await mapLimit(chunks, MAX_CONCURRENT_CALLS, async (chunk) => {
+    try {
+      return { ok: true, weeks: await readChunkWithRetry(chunk, context) };
+    } catch (err) {
+      return { ok: false, err };
+    } finally {
+      done += 1;
+      if (onProgress) onProgress({ done, total: chunks.length });
+    }
   });
-  return perChunk.flat();
+
+  const failed = outcomes.filter((o) => !o.ok);
+  if (failed.length === outcomes.length) throw failed[0].err;
+  return {
+    weeks: outcomes.filter((o) => o.ok).flatMap((o) => o.weeks),
+    readSections: outcomes.length - failed.length,
+    failedSections: failed.length,
+  };
 }
 
 // Offline demo fallback: a naive line-by-line read that looks for "Unit",

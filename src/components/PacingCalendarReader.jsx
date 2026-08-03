@@ -84,6 +84,8 @@ export default function PacingCalendarReader({ onClose }) {
   const [staleBundle, setStaleBundle] = useState(false);
   // { done, total } while a multi-section read is in flight.
   const [readProgress, setReadProgress] = useState(null);
+  // Set when some sections read and others did not.
+  const [partialNote, setPartialNote] = useState(null);
   // Multi-sheet workbooks: every tab, plus which ones are selected for reading.
   const [sheets, setSheets] = useState([]);
   const [selectedSheets, setSelectedSheets] = useState([]);
@@ -234,6 +236,7 @@ export default function PacingCalendarReader({ onClose }) {
     setLoading(true);
     setError(null);
     setImportedNote(null);
+    setPartialNote(null);
     const yearNote = `School year: ${schoolYear}-${schoolYear + 1}. Every date must fall within July ${schoolYear} to June ${schoolYear + 1}.`;
     // One calendar read serves every selected teacher, so the context describes
     // the group. Grade is only stated when they all share one -- naming a grade
@@ -256,8 +259,17 @@ export default function PacingCalendarReader({ onClose }) {
         fileDoc || undefined,
         ({ done, total }) => setReadProgress(total > 1 ? { done, total } : null)
       );
-      setWeeks(extracted.map((w) => ({ id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '', ...w })));
+      const { weeks: rows, readSections, failedSections } = extracted;
+      setWeeks(rows.map((w) => ({ id: rowId(), weekOf: '', unit: '', lesson: '', standard: '', assessmentName: '', assessmentDate: '', ...w })));
       setSource('ai');
+      // A section that would not read no longer throws the rest away. Say which
+      // part of the calendar is missing so the gap can be filled by hand rather
+      // than being discovered later as a hole in the pacing record.
+      setPartialNote(
+        failedSections
+          ? `${readSections} of ${readSections + failedSections} sections read. ${failedSections} would not read even after being split, so some weeks are missing from the draft below — add them with "+ Add week", or re-read just that part of the calendar on its own.`
+          : null
+      );
     } catch (e) {
       if (e.staleBundle) {
         // Nothing here can be retried until the page is reloaded, so say only
@@ -635,6 +647,8 @@ export default function PacingCalendarReader({ onClose }) {
                 : 'Read Calendar with AI'}
           </button>
         </div>
+
+        {partialNote && <div className="banner banner--warn">{partialNote}</div>}
 
         {error && (
           <div className="banner banner--danger">
