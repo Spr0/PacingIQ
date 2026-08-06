@@ -4,9 +4,21 @@
 // Reads a pacing calendar (the manual-upload path for teachers whose district
 // doesn't sync through Google Classroom) supplied as pasted/extracted text or
 // an attached PDF, and extracts a week-by-week breakdown: unit, lesson,
-// standard, and any assessment dates. The model is
-// read from process.env.ANTHROPIC_MODEL with no fallback, so a missing config
-// fails loudly rather than silently shipping a wrong model.
+// standard, and any assessment dates.
+//
+// Reading a calendar is structured extraction behind a human-approval gate --
+// the coach reviews every row before anything is imported -- so a cheaper,
+// faster model is low-risk here in a way it is not for coach-assist, which
+// writes principal-facing prose. It is also where nearly all the volume is: a
+// year-long PDF is dozens of calls, a coaching report is one.
+//
+// Speed matters more than price. The binding constraint is the ~26s function
+// budget, and every timeout triggers a bisect whose retries are themselves paid
+// calls, so a faster model reduces failures and cost together.
+//
+// ANTHROPIC_READER_MODEL falls back to ANTHROPIC_MODEL, so leaving it unset
+// behaves exactly as before. Neither has a default: a missing config fails
+// loudly rather than silently shipping a wrong model.
 //
 // Output is a DRAFT list. The UI requires the coach to review and approve
 // before any pacing entries or assessments are created. Nothing is sent
@@ -14,6 +26,10 @@
 // ---------------------------------------------------------------------------
 
 const { authenticate } = require('./_shared/auth.js');
+
+// The reader model. Falls back to ANTHROPIC_MODEL so an unset variable behaves
+// exactly as it did before the split.
+const READER_MODEL = process.env.ANTHROPIC_READER_MODEL || process.env.ANTHROPIC_MODEL;
 
 const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the pacing calendar provided
 (a district scope-and-sequence, unit plan, or syllabus, supplied as pasted plain text or an
@@ -96,7 +112,7 @@ exports.handler = async (event) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: process.env.ANTHROPIC_MODEL,
+        model: READER_MODEL,
         // Generous ceiling: a full-year calendar is a large JSON table, and a
         // low limit truncates it into invalid JSON. Generation stops when the
         // JSON is complete, so this does not slow smaller calendars.

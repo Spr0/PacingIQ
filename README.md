@@ -121,6 +121,23 @@ settings:
 - `ANTHROPIC_MODEL` (for example `claude-opus-4-8`; there is no default, so a
   missing value fails loudly in config rather than silently in production)
 
+Optionally:
+
+- `ANTHROPIC_READER_MODEL` — used by the pacing calendar reader and lesson plan
+  reader only. Falls back to `ANTHROPIC_MODEL` when unset, so the split is
+  opt-in and deleting the variable reverts it.
+
+  Those two are structured extraction the coach reviews row by row before
+  anything is imported, and they are nearly all of the API volume — a year-long
+  PDF is dozens of calls, a coaching report is one. `coach-assist` deliberately
+  stays on `ANTHROPIC_MODEL`, because it writes prose a principal reads.
+
+  The argument is latency more than price. The binding constraint is the ~26s
+  serverless budget; every timeout triggers a bisect whose retries are
+  themselves paid calls, so a faster model reduces failures and cost together.
+  Confirm which model actually ran via the Anthropic usage report grouped by
+  model, and compare draft quality by re-reading a calendar already imported.
+
 In the plain `npm run dev` preview the function does not run, so the assistant
 falls back to a locally templated draft (clearly labeled "demo"). To exercise
 the live function locally, run `netlify dev` with the env vars set.

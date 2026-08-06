@@ -7,6 +7,19 @@
 # variables set in the Netlify site settings:
 #   ANTHROPIC_API_KEY   - your Anthropic API key
 #   ANTHROPIC_MODEL     - e.g. claude-opus-4-8 (no default; missing config fails loudly)
+#
+# Optional:
+#   ANTHROPIC_READER_MODEL - used by calendar-reader and lesson-reader only.
+#     Falls back to ANTHROPIC_MODEL when unset, so the split is opt-in and
+#     removing the variable reverts it. Reading a calendar is structured
+#     extraction the coach reviews row by row before importing, and it is
+#     almost all of the volume (a year-long PDF is dozens of calls; a coaching
+#     report is one), so it is the right place for a cheaper, faster model.
+#     coach-assist stays on ANTHROPIC_MODEL because it writes prose a principal
+#     reads. Speed is the real argument: the ~26s function budget is the binding
+#     constraint, and each timeout triggers a bisect whose retries are paid
+#     calls, so a faster model cuts failures and cost together. Confirm which
+#     model actually ran via the usage report grouped by model.
 #   VITE_SUPABASE_URL   - already set for the browser build; the functions reuse it
 #   VITE_SUPABASE_ANON_KEY - likewise
 #

@@ -3,15 +3,24 @@
 //
 // Reads a lesson plan (pasted/extracted text or an attached PDF) and extracts
 // the unit, lesson, standard, objective, assessment references, and any pacing
-// concerns. The model is
-// read from process.env.ANTHROPIC_MODEL with no fallback, so a missing config
-// fails loudly rather than silently shipping a wrong model.
+// concerns.
+//
+// Uses ANTHROPIC_READER_MODEL, the same model as the pacing calendar reader:
+// both are structured extraction the coach reviews before anything is applied,
+// as opposed to coach-assist, which writes prose a principal reads. Falls back
+// to ANTHROPIC_MODEL, so leaving it unset behaves exactly as before. Neither
+// has a default: a missing config fails loudly rather than silently shipping a
+// wrong model.
 //
 // Output is a DRAFT. The UI requires human review before anything is applied
 // to a teacher's pacing record. Nothing is sent anywhere from this function.
 // ---------------------------------------------------------------------------
 
 const { authenticate } = require('./_shared/auth.js');
+
+// The reader model. Falls back to ANTHROPIC_MODEL so an unset variable behaves
+// exactly as it did before the split.
+const READER_MODEL = process.env.ANTHROPIC_READER_MODEL || process.env.ANTHROPIC_MODEL;
 
 const SYSTEM_PROMPT = `You are an instructional coaching assistant. Read the lesson plan provided (as
 pasted plain text or an attached PDF document) and extract what it covers. Use ONLY the facts
@@ -82,7 +91,7 @@ exports.handler = async (event) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: process.env.ANTHROPIC_MODEL,
+        model: READER_MODEL,
         max_tokens: 1500,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent }],
