@@ -1,7 +1,7 @@
 # PacingIQ — context handoff
 
-Written 2026-07-31. Supersedes `MORNING.md`. Everything below was verified against
-the live system on that date; re-check anything you're about to act on.
+Written 2026-08-06. Supersedes the version in commit `c55ccaa`. Everything below
+was verified on that date; re-check anything you're about to act on.
 
 ---
 
@@ -28,293 +28,241 @@ evaluation record.
 | Shane Bentley | shaneb@susd12.org | ap | |
 | Kerri Ravenscroft | kerrir@susd12.org | abss | displays literally as "ABSS" |
 
-Stacy and Scott have set their own passwords. **The other four are still on the
-temporary `Firstname2026`** and will hit the forced-change gate on first sign-in.
+Stacy and Scott have set their own passwords. As of 2026-07-31 the other four
+were still on the temporary `Firstname2026` and will hit the forced-change gate
+on first sign-in. Unconfirmed since.
 
 ### Permission model
 
-All six can create observations, coaching notes, and action steps, and edit **only
-their own**. **Delete is coach-only.** Enforced in `migrations/002`; mirrored (not
-enforced) by `src/lib/permissions.js` — `canEditRecord` / `canDeleteRecord`.
+All six can create observations, coaching notes, and action steps, and edit
+**only their own**. **Delete is coach-only.** Enforced in `migrations/002`;
+mirrored (not enforced) by `src/lib/permissions.js` — `canEditRecord` /
+`canDeleteRecord`.
 
 ---
 
 ## Operating rules learned the hard way
 
-1. **Never trust that a console step was done — probe the behaviour.** Supabase and
-   Netlify consoles fail quietly. An "anonymous sign-ins off" toggle that hadn't
-   saved was still handing out coach tokens; an "Invite user" that reported success
-   had created accounts with no password.
+1. **Never trust that a console step was done — probe the behaviour.** Supabase
+   and Netlify consoles fail quietly. Probing works: an unauthenticated
+   PostgREST call returns `[]` for a table that exists with RLS denying, and
+   `PGRST205` for one that doesn't. That three-way control test is how migration
+   006 was confirmed rather than believed.
 2. **Give Scott SQL inline in a fenced block, never a file path.** He pastes
-   straight into the SQL Editor — a path once went in verbatim and errored.
-3. **Migrations are applied by hand.** `supabase/migrations/001..005` are all applied
-   as of 2026-07-31. Check the live DB rather than assuming.
-4. **Verify against the live database, not the local build.** Both the dev server and
-   production point at the same Supabase project.
+   straight into the SQL Editor.
+3. **Migrations are applied by hand.** `001..006` all applied as of 2026-08-06.
+4. **Verify against the live database, not the local build.** Dev and production
+   point at the same Supabase project.
 5. **Don't set anyone's password or create accounts** — that's Scott's to do.
+6. **Never deploy a Netlify Function change without `npx netlify-cli build`
+   first**, then unzip `.netlify/functions/<name>.zip` and `require()` the
+   bundled file to assert `typeof m.handler === 'function'`. Source-level tests
+   pass while the *bundle* is broken. See the outage below.
+7. **A green test can still prove nothing.** Twice, a test passed against a
+   mirrored copy of the logic and only found the truth when run against the real
+   module. Prefer bundling the real thing (esbuild, with `import.meta.env`
+   defined and the session stubbed) over reimplementing it.
 
 ---
 
-## Recent history (this session)
+## I cannot sign in
 
-Closed a live security hole: anonymous sign-in was auto-granting **coach** to every
-visitor — full write and delete on 50 teachers' records. Replaced with per-person
-email+password (magic links are unusable: district mail filtering blocks Supabase's
-outbound email, which is also why dashboard "Invite user" fails). Added the `abss`
-role, record ownership, coach-only delete, a forced first-login password change,
-and real user attribution in the audit log (it used to say "Guest").
+There is no login for me and I must not create one, so **no authenticated page in
+this app has ever been clicked through by me**. Everything claimed below was
+verified by one of: a pure-function test under `node`, a bundled-real-module
+test, a production HTTP probe, or an unauthenticated PostgREST probe. Where
+something is only reviewed, it says so.
 
-Also: fixed a blank-page-until-refresh hang; built the observation rotation
-(randomised, ~5/day across 10 weekdays, auto-advancing) with `.ics`/CSV/print export;
-fixed the AI calendar reader's 504s and its habit of inventing years; separated
-coaching notes from classroom observations so desk notes stop counting as visits;
-and today rewrote the dashboard as a triage queue.
-
-Full detail is in the git log — commit messages explain *why*, not just what.
+Techniques that work around this are in the user memory file
+`project_pacingiq_verification_ceiling.md`.
 
 ---
 
-## Open items needing Scott
+## What happened since the last handoff
 
-Nothing is blocking, but these are outstanding:
+Twelve commits. The four-part bug sweep from the previous handoff has been worked
+through; what remains is under **Still open**.
 
-1. **Tell the other four their temporary password** (`Firstname2026`, capital first
-   letter). They'll be forced to change it on first sign-in.
-2. **Delete a leftover test row** I created and cannot remove (delete is coach-only
-   and I have no coach password):
-   ```sql
-   delete from public.observations where strengths like 'OWNERSHIP UI TEST%';
-   ```
-3. **Olivia Mandros' imported pacing has no subject attached** (shows "—"). Picking
-   the Subject dropdown before importing files it under ELA properly. Cosmetic.
+### The security fix, and the outage it caused
+
+All six Netlify Functions were on public URLs with **no auth check** —
+`DELETE /.netlify/functions/delete-attachment?key=…` destroyed any attachment in
+the district, from anywhere. Closed in `fcc2d9f`: every function now verifies the
+caller's Supabase token against `/auth/v1/user`, then reads their role from
+`profiles` with that same token so RLS governs the role lookup too. Never a
+service-role key. Config reuses the `VITE_SUPABASE_*` pair already on the site,
+so there was nothing to add in the console.
+
+**That deploy took production down for 12 minutes.** The root `package.json` is
+`"type": "module"`, so esbuild treated the CommonJS functions as ESM and
+`exports.handler` never became an export — Netlify answered every call with
+`502 Runtime.HandlerNotFound`. Only functions that `require()` a *local* file
+trip it, which is why adding `_shared/auth.js` broke all six at once. Fixed in
+`f3cb883` with `netlify/functions/package.json` = `{"type":"commonjs"}`.
+
+**esbuild had been printing the exact remedy as a bundling warning on every
+previous deploy, unread.** That is also how `upload-attachment` was found to have
+been dead in production since June: it is the one pre-existing function with a
+local require, and the "storage function is not deployed here" error in the last
+handoff was this, misdiagnosed as a storage problem.
+
+### Everything else fixed
+
+- **`b5cffee` — Approve-and-save destroyed every AI report it accepted.** It
+  wrote to `teachers.ai_drafts`, a column that never existed, unawaited, with the
+  success banner and textarea-clear firing regardless. It failed that way on
+  every use since the feature shipped. Now a real table (`migrations/006`),
+  chosen over a jsonb column because `teachers_update` is coach-only — which
+  would have left the feature broken for four of the six users. **Drafts approved
+  before 2026-08-03 are unrecoverable.**
+- **`7369d70` — opening the Schedule page could delete the previous cycle.** The
+  auto-advance called `generate()` from a mount effect, and that path deletes
+  every row before inserting. The first person to open the page on a Monday
+  destroyed the finished cycle and every `done_at` tick — per `migrations/004`
+  the only record of a visit walked without a write-up. It appends now.
+- **`aa8b275` — nine writes that claimed success without waiting.** Chief among
+  them the share-with-teacher toggles, gated on `writable` when RLS needs
+  coach-or-owner: leadership could believe a teacher could see feedback she could
+  not. Now gated on ownership. Also fixed here: LessonPlanReader derived "this
+  week" as `max(weekOf)` across all teachers — measured **ten months wrong**
+  against a real year-long import.
+- **`cc4df5b` — one pacing calendar imports to a whole grade-level team.**
+  Teacher is a filtered checklist now. The in-batch assessment dedup had to be
+  re-keyed by teacher; without that, teacher A got the assessment and B and C got
+  none, silently.
+- **`7d236ae` — Approve and Import now says why it is disabled.** Reported live
+  by Stacy. Also fixed a sticky `.modal__foot` that swallows clicks — not her
+  actual blocker, but the same failure dressed as a working control.
+- **`ca6d65c` — "reload", not "sign in", when a tab outlives a deploy.** A 401
+  while the browser still holds a valid session can only mean a stale bundle.
+- **`b0f08dc` + `bf08593` — PDF pacing calendars.** See below.
+
+### The PDF calendar saga (two rounds, worth reading)
+
+**Round one.** `extractPdfText` joined text items with spaces and pages with
+`\n`, so **a PDF became one line per page**, and `chunkCalendar` only ever
+started a new chunk *between* lines. A page went to the model whole, several
+times the measured-safe size, and 504'd. The error told the coach to upload a
+smaller section, which could not help — the size of her file was never the
+problem. Fixed by honouring pdf.js's `hasEOL` (verified against pdfjs-dist
+4.7.76 with a hand-built PDF: old = 1 line, new = 3) and pre-splitting over-long
+lines.
+
+**Round two, same error the next day.** `mapLimit` awaits `Promise.all`, so **one
+failing section rejected the whole read**. Most sections came back fine, one
+dense one exhausted the bisect, and every success was discarded — after being
+paid for. Partial reads are now kept, and the modal says how many sections were
+skipped.
+
+The lesson worth carrying: round one's fix was correct, and the symptom was
+identical afterwards. **Do not assume yesterday's fix covers today's repeat.**
 
 ---
 
-## Bug sweep, 2026-07-31
+## Cost
 
-Four parallel audits over the data/auth layer, derived logic, pages/components, and
-the AI/serverless layer. **Two app-breaking bugs found and already fixed** (commit
-`d142675`); the rest are catalogued below, unfixed, roughly in severity order.
+**$9.54 in July, $3.09 in the first six days of August** — roughly a $16/month
+run rate. PacingIQ is the only thing on the API account. Most of August is the
+two science-calendar imports on the 3rd; call it ~$1.50 per year-long PDF import.
 
-I verified the CRITICAL and HIGH items myself by reading the code. Items marked
-*(reported)* came from the sweep and are worth confirming before acting.
+Check it at [platform.claude.com/cost](https://platform.claude.com/cost), or via
+`/v1/organizations/cost_report` with an **Admin** key (`sk-ant-admin01-…`, not
+the app's key). Max 31 daily buckets per request; the project began 2026-06-30.
 
-### Fixed today
+**`ANTHROPIC_MODEL` is set only in Netlify.** Nothing in the repo records its
+value, and both `README.md` and `netlify.toml` say "e.g. `claude-opus-4-8`". The
+usage report shows Opus-heavy with a little Sonnet; since all three functions
+read the same env var, **the Sonnet is not this app**.
 
-- **Delete observation never worked.** `teacherName` is a lookup map, not a function;
-  `teacherName(id)` threw above the `try`, so the button was inert — no confirm, no
-  delete, no error. Added yesterday for exactly this job; never once worked.
-- **After one save, no further observation could be saved.** `setSaving(false)` was
-  only in the `catch`, so the success path left the flag true and the button stayed
-  greyed out as "Saving…" for the rest of the visit, losing typed input on navigation.
-- **"Reshuffle upcoming" could strand an entire cycle in the past.** The
-  "already seen" lookback was `SEEN_WINDOW_DAYS`, but a 10-weekday cycle is ~14
-  calendar days, so visits from the *previous* cycle pinned teachers to dates already
-  gone. Proven: six teachers visited 3–8 days ago → all six rows moved into the past
-  with nobody scheduled ahead. The page would read 100% done, `cycleHasEnded()` would
-  flip true, and the unattended auto-advance would then delete the table. A pin can no
-  longer land before today.
-- **Un-taken assessments read as a score collapse.** `assessmentTrend` used
-  `avgScore || 0`, so an upcoming test (null score) counted as zero. A year-long
-  calendar import creates one null row per unit test, so this fired on most of the
-  roster: 88 → 91 → un-taken reported "down", set `assessmentConcern`, and added 15 to
-  the risk score, while the dashboard showed a red downward arrow beside a rising
-  score. Trend and concern now consider only scored tests.
+**Open decision: split the model per function.** Calendar and lesson reading are
+structured extraction behind a human-approval gate, so a weaker extraction is
+visible and correctable — low-risk to drop a tier. `coach-assist` writes
+principal-facing prose and is one call per report versus ~50 per import, so it
+should stay on Opus. The argument is **latency, not cost**: the binding
+constraint is the ~26s function budget, and every 504 triggers a bisect whose
+retries are themselves paid calls. Measure before switching — re-run a calendar
+Stacy has already imported and compare drafts.
 
-### CRITICAL — unauthenticated serverless functions
+---
 
-**Verified.** `grep` for any auth reference across `netlify/functions/*.js` returns
-nothing. All six functions are on a public URL with no session check.
+## Still open
 
-- `delete-attachment.js` — `DELETE ?key=<key>` deletes any blob, no auth. Attachment
-  keys are readable by every `can_view()` role (they're on the observation row), so a
-  principal/AP/ABSS — explicitly *not* allowed to delete observations — can harvest
-  every key and destroy all observation evidence in the district. RLS never sees it.
-- `get-attachment.js` — same shape for reads: any key returns the bytes.
-- `coach-assist.js`, `calendar-reader.js`, `lesson-reader.js` — an unauthenticated,
-  unmetered Claude proxy on `ANTHROPIC_API_KEY`. A stranger can loop curl until the
-  account cap trips, which also takes the tool down for Stacy. `coach-assist` passes
-  caller-controlled `context` straight into `messages` without validating it's a
-  string.
-- `upload-attachment.js` — unauthenticated writes into Netlify Blobs; the key is
-  built from unsanitised form fields.
+Roughly in the order I'd take them.
 
-**Fix:** verify a Supabase JWT in every function, and for get/delete confirm the
-caller can view the owning observation. This is the first thing I'd do.
-
-*(The `ANTHROPIC_API_KEY` itself does not leak to the browser — verified. `.env.local`
-holds only the Supabase URL and anon key.)*
-
-### CRITICAL — AI draft approval silently discards the work
-
-**Verified.** `src/components/CoachAssistant.jsx:105` writes `{ aiDrafts: [...] }` to
-`teachers`. There is **no `ai_drafts` column** — zero hits across `supabase/`. The
-call is unawaited with no `.catch`, and the success banner plus `setDraft('')` run
-unconditionally.
-
-A coach generates a report, edits it, clicks *Approve and save*, sees "approved and
-saved to <teacher>'s record", and the textarea empties. Nothing was written; the text
-is unrecoverable; there's no audit entry. **This fails on every use of the feature.**
-
-Fix: add the column (`alter table public.teachers add column if not exists ai_drafts
-jsonb not null default '[]'`), then `await` the write and only then clear the draft.
-
-### CRITICAL — schedule auto-advance wipes every past cycle, unattended
-
-**Verified** — and it's mine. `src/pages/Schedule.jsx` ~111 fires `generate()` from a
-`useEffect` on mount when the cycle has ended. That calls `store.replaceSchedule`,
-which does `delete().not('id','is',null)` — **every row in the table** — then inserts
-one fresh cycle.
-
-Monday morning, first person to open the page (any writable role, no click, no
-confirm) destroys the previous cycle including every `done_at` tick. Per
-`migrations/004` those ticks are the *only* record of a visit walked without a
-write-up. The three manual buttons are correctly confirmed; the automatic path isn't.
-
-Same function: delete and insert are two round trips with no transaction. If the
-insert fails after the delete commits, the schedule is left empty and the UI says
-"Failed to generate the schedule. Please try again," which reads as *nothing
-happened*.
-
-Fix: the auto-advance should *append* the next cycle, not replace the table — or at
-minimum prompt. And `replaceSchedule` should scope its delete.
-
-### HIGH — writes that fail silently while claiming success
-
-A recurring pattern: `db.*` called without `await` and without `.catch`, with a
-success message set unconditionally. Every one of these can tell a coach something
-saved when it didn't.
-
-| Where | What |
-|---|---|
-| `Observations.jsx` share-with-teacher | **privacy control.** Gated on `writable`, but RLS needs coach-or-owner. A principal ticks "release Strengths to the teacher", RLS refuses, checkbox silently reverts. She believes the teacher can see it. |
-| `Goals.jsx`, `ActionPlans.jsx` status selects | revert silently for anyone but the creator |
-| `Goals.jsx`, `ActionPlans.jsx` deletes (×3) | **no confirm, no await, no catch.** One misclick destroys a plan or a school-wide shared template |
-| `LessonPlanReader.jsx` apply-to-pacing | see below; banner always claims success |
-| `WeeklyEmail.jsx` mark-as-sent | claims "Logged as sent" even if the audit write failed |
-
-### HIGH — `tidyTabularText` corrupts multi-line spreadsheet cells
-
-*(reported, and it's mine)* `src/lib/fileExtract.js` splits on `\n` **before** parsing
-quotes, and `splitRow` resets its quote state per line. A cell containing a line
-break — alt+enter in an Objective or Notes column, which `sheet_to_csv` correctly
-emits inside quotes — is torn in half and the row's standard is lost:
-
-```
-IN   1,Unit 1,"Solve one-step equations\nand check solutions",8.EE.7
-OUT  1,Unit 1,Solve one-step equations
-     "and check solutions,8.EE.7"
-```
-
-The week imports with an empty standard, silently, and the tidied text is what the
-coach reviews — so the review sees already-corrupted input. Fix: parse the whole text
-in one pass rather than pre-splitting on newlines.
-
-### HIGH — PDF pacing calendars can never import
-
-*(reported)* `extractPdfText` joins a page's text items with spaces and pages with
-`\n`, so a PDF becomes **one line per page**. `chunkCalendar` is line-aligned and
-can't subdivide a line, and the bisect retry bails on `lines.length < 2`. Every
-text-heavy PDF page becomes one ~4,000-char chunk, 3× the measured-safe size, so it
-504s — and the error tells the coach to upload a smaller section, which cannot help.
-
-### HIGH — LessonPlanReader writes pacing to the wrong week
-
-*(reported)* It derives the current week as `max(weekOf)` across **all** teachers'
-entries, not via `pickCurrentWeek`. This is the exact bug fixed in `Pacing.jsx` today
-(a year-long imported calendar makes the newest row next May); this file wasn't
-updated. With a calendar imported, "Apply to this week's pacing" inserts a junk row
-dated months in the future and reports success.
-
-### HIGH — two leadership-facing numbers are wrong
-
-Both *(reported)*, both in `intelligence.js`, both feed the Coaching Impact Report:
-
-- **"No pacing data" is reported as "on pace / green".** `daysBehind = pacing ? … : 0`
-  → `pacingStatus(0)` → green, and `riskScore` adds no factor. The observation path
-  deliberately distinguishes null ("Never observed", +20); pacing has no equivalent.
-  Demonstrated: 5 teachers, only 2 with any pacing data, report claims **80% on pace**.
-- **Stale pacing is presented as the current slip, with no age shown.**
-  `pickCurrentWeek` returns the latest week that has *started*, however old, and
-  nothing on the rollup carries `weekOf`. A ten-week-old "5 days behind" is
-  indistinguishable from today's, and `recommendedAction` will tell the coach to open
-  an intervention on it.
-
-### MEDIUM
-
-- **A transient profile-fetch failure ejects an approved user.** `AuthContext`'s
-  `catch { setProfile(null) }` conflates "request failed" with "no profile", so a
-  two-second Wi-Fi drop during a token refresh drops a coach to "Waiting on access"
-  and unmounts her unsaved form.
-- **An audit-log failure causes duplicate real records.** The audit write happens
-  after the record write inside the same `try`, so a failed audit reports the *record*
-  save as failed; the coach retries and gets a second observation. There is **no
-  unique constraint anywhere in the schema** to stop it.
-- **Weekly pacing overwrites last week** for any school that hasn't imported a
-  calendar: `currentWeek` resolves to the latest already-recorded week, so the second
-  week's entry updates the first instead of adding a row. Pacing history never grows.
-- **`chunkCalendar` duplicates the first data row into every chunk** when a file has
-  no header row (the only test is `length <= 300`), and there's no in-batch duplicate
-  guard for pacing entries — so the same week imports N times.
-- **The retry tree can reach ~60 paid API calls for one chunk**, and nothing caps
-  total chunks: a 4MB workbook is ~3,300 chunks with no confirmation step.
-- **A non-JSON model response returns 502**, which the client treats as a platform
-  timeout and bisects three levels deep chasing a size problem that doesn't exist.
-- **`store.remove` can't tell a denied delete from a successful one** — no `.select()`,
-  so RLS refusal resolves as success and the row reappears after refresh.
-- **Controls shown to roles the DB will refuse:** Pacing "Update", and the
-  Interventions requirement toggles for `abss`. These *do* surface an error, so
-  they're dead controls rather than silent corruption.
-- **A teacher can never be reduced from two subjects to one** —
-  `TeacherDetail.jsx:111` passes `undefined`, which `patchToSnake` skips, so the
-  `subjects` array is never cleared and phantom per-subject rows persist.
-
-### LOW / systemic
-
-- **`Field` doesn't associate its label** (`ui.jsx` — `<label>` is a sibling with no
-  `htmlFor`), so every form control in the app is unlabelled to a screen reader.
-  `Schedule.jsx` is the one place done correctly.
-- **`Modal` has no `role="dialog"`, no Escape handler, no focus trap.** Escape doing
-  nothing is the most user-visible part.
-- **`"null · 2d behind"`** renders when a teacher has both subject-tagged and
-  untagged pacing rows.
-- The 10MB attachment limit exceeds Netlify's ~4.5MB real ceiling, and the resulting
-  error says "storage function is not deployed here".
-- The PDF-as-document code path is unreachable dead code (`kind: 'pdf'` is never
-  returned), which is *why* the PDF bug above bites.
+1. **Two leadership-facing numbers are wrong** (`intelligence.js`), both feeding
+   the Coaching Impact Report Angelica sees:
+   - **"No pacing data" reports as on-pace / green.** `daysBehind = pacing ? … : 0`
+     → `pacingStatus(0)` → green, and `riskScore` adds no factor. The observation
+     path deliberately distinguishes null ("Never observed", +20); pacing has no
+     equivalent. Demonstrated: 5 teachers, 2 with any pacing data, report claims
+     **80% on pace**.
+   - **Stale pacing is presented as the current slip, with no age shown.**
+     `pickCurrentWeek` returns the latest week that has *started*, however old,
+     and nothing on the rollup carries `weekOf`. A ten-week-old "5 days behind"
+     is indistinguishable from today's, and `recommendedAction` will tell the
+     coach to open an intervention on it.
+2. **`tidyTabularText` corrupts multi-line spreadsheet cells** (`fileExtract.js`).
+   It splits on `\n` before parsing quotes, and `splitRow` resets quote state per
+   line. An alt+enter inside an Objective or Notes column — which `sheet_to_csv`
+   correctly emits inside quotes — tears the row in half and loses its standard.
+   Silent, and the tidied text is what the coach reviews, so the review sees
+   already-corrupted input.
+3. **An audit-log failure causes duplicate real records.** The audit write happens
+   after the record write inside the same `try`, so a failed audit reports the
+   *record* save as failed; the coach retries and gets a second observation.
+   There is **no unique constraint anywhere in the schema** to stop it.
+4. **A transient profile-fetch failure ejects an approved user.** `AuthContext`'s
+   `catch { setProfile(null) }` conflates "request failed" with "no profile", so a
+   brief Wi-Fi drop during a token refresh drops a coach to "Waiting on access"
+   and unmounts her unsaved form.
+5. **Weekly pacing overwrites last week** for any school that hasn't imported a
+   calendar: `currentWeek` resolves to the latest already-recorded week, so the
+   second week's entry updates the first. Pacing history never grows.
+6. **`chunkCalendar` duplicates the first data row into every chunk** when a file
+   has no header row — the only test is `length <= 300`.
+7. **`store.remove` can't tell a denied delete from a successful one** — no
+   `.select()`, so an RLS refusal resolves as success and the row reappears on
+   refresh.
+8. **A teacher can never be reduced from two subjects to one** —
+   `TeacherDetail.jsx:111` passes `undefined`, which `patchToSnake` skips, so the
+   `subjects` array is never cleared.
+9. **Accessibility, systemic.** `Field` doesn't associate its label (`ui.jsx` —
+   the `<label>` is a sibling with no `htmlFor`), so every form control in the app
+   is unlabelled to a screen reader. `Modal` has no `role="dialog"`, no Escape
+   handler, no focus trap. `Schedule.jsx` is the one place labels are done right.
+10. **No holiday calendar in the data model** — `buildCycleEntries` will happily
+    schedule 2027-01-01. A known gap, not a logic error.
 
 ### Latent, currently DB-guarded
 
-`pacingStatus('four')` returns green (`Number(x) || 0`); `parse('2026-02-30')` rolls
-over to 2026-03-02. Neither can reach stored data — `days_behind` is a NOT NULL
-integer and date columns reject invalid input — so these surface only in a pre-save
-AI-import preview. Worth hardening, not a live wrong number.
+`pacingStatus('four')` returns green (`Number(x) || 0`); `parse('2026-02-30')`
+rolls over to 2026-03-02. Neither can reach stored data — `days_behind` is a NOT
+NULL integer and date columns reject invalid input — so these surface only in a
+pre-save AI-import preview.
 
 ### Confirmed **not** bugs
 
-Stated so they aren't re-investigated: no `.sort()` on state or props anywhere; list
-keys are all present and stable; the `createdById` stamping can't be spoofed; role
-escalation through the app is genuinely closed (no insert/update/delete policy on
+Stated so they aren't re-investigated: no `.sort()` on state or props anywhere;
+list keys are present and stable; `createdById` stamping can't be spoofed; role
+escalation through the app is closed (no insert/update/delete policy on
 `profiles`); the attachment `pendingKeys`/`removedKeys` lifecycle is correct; the
-`onAuthStateChange` deadlock is fixed and no remaining call site can reach it;
-`observations.kind` NOT NULL is set on both insert paths. Date handling in `dates.js`
-is correct across both DST transitions and the year boundary. `scheduleExport.js` ICS
-folding round-trips exactly, including em dashes and accented names. `buildCycleEntries`
-is correct at 0, 1, and 48 teachers with no weekend dates and everyone exactly once —
-though note it will happily schedule 2027-01-01, since there is **no holiday calendar
-in the data model**. That's a known gap, not a logic error.
+`onAuthStateChange` deadlock is fixed. Date handling in `dates.js` is correct
+across both DST transitions and the year boundary. `scheduleExport.js` ICS folding
+round-trips exactly, including em dashes and accented names. `buildCycleEntries`
+is correct at 0, 1, and 48 teachers, with no weekend dates and everyone exactly
+once.
 
 Note that **`schema.sql` read alone is misleading** — it still shows the old
 coach-only policies that `migrations/002` rewrites. The migrations are the truth.
 
 ---
 
-## Where I'd start
+## Open items needing Scott
 
-1. **Auth on the six Netlify functions.** Anyone on the internet can delete every
-   attachment in the district.
-2. **`ai_drafts`** — one column, and a flagship feature stops lying about saving.
-3. **Schedule auto-advance** — it destroys visit records with nobody touching it.
-4. Then the silent-failure sweep: `await` + `.catch` + an error surface on every
-   `db.*` call in the table above, and gate the share-with-teacher control on
-   ownership like Edit already is.
+1. **Confirm the other four have signed in** and changed off `Firstname2026`.
+2. **Decide the model split** (see Cost). If wanted, it's one env var plus a
+   fallback so nothing breaks when it's unset.
+3. **Give PacingIQ its own Anthropic API key** if it doesn't have one. Per-project
+   cost questions are only answerable if the key is per-project.
+4. **`PacingIQ dashboard layout.zip`** is sitting untracked in the repo root.
+   Unknown provenance; nothing reads it.
