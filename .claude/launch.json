@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 5173
+    },
+    {
+      "name": "henderson-advisory",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["http-server", "/Users/scotthenderson/Downloads/henderson-advisory", "-p", "8934", "-c-1"],
+      "port": 8934
     }
   ]
 }
