@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
-import { can } from '../lib/permissions.js';
+import { can, canDeleteRecord } from '../lib/permissions.js';
 import { pacingStatus, gradeRank } from '../lib/intelligence.js';
 import { formatDate } from '../lib/dates.js';
 import {
@@ -41,6 +41,7 @@ const EMPTY_FORM = { name: '', subject: '', subjects: '', gradeLevel: '', assign
 export default function Teachers() {
   const { rollups, db, roleKey } = useApp();
   const writable = can(roleKey, 'write');
+  const deletable = canDeleteRecord(roleKey);
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState(searchParams.get('q') || '');
@@ -50,6 +51,7 @@ export default function Teachers() {
   const [saveError, setSaveError] = useState(null);
   const [saving, setSaving] = useState(false);
   const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
+  const [listError, setListError] = useState(null);
 
   function toggleSort(key) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: DEFAULT_SORT_DIR[key] }));
@@ -161,8 +163,28 @@ export default function Teachers() {
     }
   }
 
+  // Coach-only, matching the delete rule everywhere else in the app. Confirmed
+  // by name because this is not recoverable from the UI -- every observation,
+  // pacing entry, intervention, action plan, and goal tied to this teacher
+  // goes with it.
+  async function removeTeacher(t) {
+    if (
+      !window.confirm(
+        `Delete ${t.name}? This removes their entire record -- observations, pacing, interventions, action plans, and goals. This cannot be undone.`
+      )
+    )
+      return;
+    setListError(null);
+    try {
+      await db.remove('teachers', t.id, `deleted teacher: ${t.name}`);
+    } catch (err) {
+      setListError(err.message || 'Could not delete that teacher.');
+    }
+  }
+
   return (
     <div className="stack">
+      {listError && <div className="banner banner--danger">{listError}</div>}
       <div className="row row--between row--wrap">
         <div className="row" style={{ gap: 8 }}>
           <input
@@ -216,6 +238,7 @@ export default function Teachers() {
                   Risk
                   <InfoTip text={RISK_SCORE_TOOLTIP} />
                 </th>
+                {deletable && <th></th>}
               </tr>
             </thead>
             <tbody>
@@ -267,6 +290,13 @@ export default function Teachers() {
                     <td>
                       <RiskBadge risk={r.risk} />
                     </td>
+                    {deletable && (
+                      <td>
+                        <button className="btn btn--sm btn--ghost" onClick={() => removeTeacher(t)}>
+                          Delete
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}

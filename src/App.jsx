@@ -9,7 +9,6 @@ import Dashboard from './pages/Dashboard.jsx';
 import Teachers from './pages/Teachers.jsx';
 import TeacherDetail from './pages/TeacherDetail.jsx';
 import Observations from './pages/Observations.jsx';
-import Schedule from './pages/Schedule.jsx';
 import Pacing from './pages/Pacing.jsx';
 import Interventions from './pages/Interventions.jsx';
 import Report from './pages/Report.jsx';
@@ -35,7 +34,6 @@ export default function App() {
           <Route path="teachers" element={<Teachers />} />
           <Route path="teachers/:id" element={<TeacherDetail />} />
           <Route path="observations" element={<Observations />} />
-          <Route path="schedule" element={<Schedule />} />
           <Route path="pacing" element={<Pacing />} />
           <Route path="interventions" element={<Interventions />} />
           <Route path="report" element={<Report />} />

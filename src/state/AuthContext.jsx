@@ -44,11 +44,18 @@ export function AuthProvider({ children }) {
   // onAuthStateChange callback, where any nested supabase auth call would
   // deadlock on the auth lock and leave an approved user stuck on the
   // "Waiting on access" screen. See getMyProfile in data/store.js.
+  //
+  // A thrown error here (a network blip, a timed-out request) is not the same
+  // thing as "no profile row exists" -- getMyProfile already returns null for
+  // that case on success. Treating a transient failure the same way used to
+  // eject an already-approved user to the pending/blank screen on a bad Wi-Fi
+  // moment mid-session. So a failure leaves whatever profile was already
+  // loaded alone instead of clobbering it to null.
   const loadProfile = useCallback(async (currentSession) => {
     try {
       setProfile(await store.getMyProfile(currentSession?.user?.id));
     } catch {
-      setProfile(null);
+      setProfile((prev) => prev);
     }
   }, []);
 

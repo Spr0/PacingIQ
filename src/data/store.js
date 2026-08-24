@@ -14,7 +14,6 @@ import { supabase } from './supabaseClient.js';
 // App collection name -> Postgres table name.
 const TABLES = {
   teachers: 'teachers',
-  scheduleEntries: 'schedule_entries',
   observations: 'observations',
   pacingEntries: 'pacing_entries',
   assessments: 'assessments',
@@ -240,44 +239,6 @@ export async function update(collection, id, patch) {
 export async function remove(collection, id) {
   const { error } = await supabase.from(tableFor(collection)).delete().eq('id', id);
   check(`remove(${collection})`, error);
-}
-
-// Wholesale-replaces the observation-rotation schedule: clears every
-// existing schedule_entries row, then inserts the freshly generated set in
-// one request. Used by the randomizer (see src/pages/Schedule.jsx) instead
-// of the generic insert() above, which would mean one request per row for a
-// roster that can be dozens of teachers.
-// Adds rows without touching the ones already there -- for slotting a newly
-// added teacher in mid-cycle, where a full replace would reshuffle (and
-// un-tick) everybody else.
-export async function addScheduleEntries(entries) {
-  if (!entries.length) return [];
-  const { data, error } = await supabase
-    .from('schedule_entries')
-    .insert(entries.map(patchToSnake))
-    .select();
-  check('addScheduleEntries', error);
-  return rowsToCamel(data);
-}
-
-export async function replaceSchedule(entries) {
-  const { error: delError } = await supabase.from('schedule_entries').delete().not('id', 'is', null);
-  check('replaceSchedule (clear)', delError);
-  if (!entries.length) return [];
-  const { data, error } = await supabase
-    .from('schedule_entries')
-    .insert(entries.map(patchToSnake))
-    .select();
-  if (error) {
-    // The delete above has already committed -- these are two round trips with
-    // no transaction around them. A generic "please try again" here reads as
-    // "nothing happened", when in fact the schedule is now empty, so say so.
-    throw new Error(
-      'The old schedule was cleared but the new one did not save, so the schedule is empty right now. ' +
-        `Press Generate again to lay one out. (${error.message})`
-    );
-  }
-  return rowsToCamel(data);
 }
 
 // Fetches every collection in parallel. Replaces the old synchronous

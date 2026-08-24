@@ -19,7 +19,6 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { isOverdue, assessmentTrend, SEEN_WINDOW_DAYS } from '../lib/intelligence.js';
-import { groupSchedule, thisWeek } from '../lib/rotation.js';
 import { formatDate, daysUntil, parse } from '../lib/dates.js';
 import { Icon } from '../components/icons.jsx';
 import { Card, Empty, InfoTip, RISK_SCORE_TOOLTIP, PACING_STATUS_TOOLTIP } from '../components/ui.jsx';
@@ -161,51 +160,6 @@ function QueueSort({ label, sortKey, sort, onSort, end, tip }) {
       </button>
       {tip && <InfoTip text={tip} />}
     </span>
-  );
-}
-
-// ---- rotation strip ----------------------------------------------------
-
-function RotationStrip() {
-  const { scheduleEntries, teachers, observations } = useApp();
-  const { days } = useMemo(
-    () => groupSchedule(scheduleEntries, teachers, observations),
-    [scheduleEntries, teachers, observations]
-  );
-  const week = useMemo(() => thisWeek(days), [days]);
-  if (!days.length) return null;
-
-  const t = week.today;
-  return (
-    <section className="rotstrip">
-      <div className="rotstrip__lead">
-        <div className="rotstrip__eyebrow">Today's rotation</div>
-        <div className="rotstrip__count">
-          {t ? `${t.doneCount} of ${t.entries.length} observed` : 'Nothing scheduled today'}
-        </div>
-      </div>
-      <div className="rotstrip__chips">
-        {t ? (
-          t.entries.map((e) => (
-            <Link className="rotchip" key={e.id} to={`/teachers/${e.teacher.id}`}>
-              <span className={`rotchip__avatar chip--${e.done ? 'green' : 'amber'}`}>
-                {e.done ? '✓' : initials(e.teacher.name)}
-              </span>
-              {e.teacher.name}
-              {e.teacher.subject && <span className="rotchip__period">{e.teacher.subject}</span>}
-            </Link>
-          ))
-        ) : (
-          <span className="muted small">
-            No classroom visits assigned for today.
-            {week.upcoming.length > 0 && ` Next up: ${formatDate(week.upcoming[0].date)}.`}
-          </span>
-        )}
-      </div>
-      <Link className="rotstrip__link" to="/schedule">
-        Full rotation <Icon name="arrow" />
-      </Link>
-    </section>
   );
 }
 
@@ -360,8 +314,6 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
-
-      <RotationStrip />
 
       <div className="dash-cols2">
         {/* ---- Triage queue ---- */}

@@ -22,16 +22,11 @@ import {
 } from '../lib/attachments.js';
 import { Card, Badge, Empty, Field, Modal, SortHeader } from '../components/ui.jsx';
 
-const ENGAGEMENT_LEVELS = ['Low', 'Medium', 'High'];
 const ACTION_STATUSES = ['Open', 'In Progress', 'Complete'];
 
-// Rank engagement so the column sorts by intensity (Low -> High), not
-// alphabetically. Missing values sort below any set level.
-const ENGAGEMENT_RANK = { Low: 1, Medium: 2, High: 3 };
-
 // The direction a column starts in the first time it is clicked: dates newest
-// first, teachers A to Z, engagement highest first.
-const DEFAULT_SORT_DIR = { date: 'desc', teacher: 'asc', engagement: 'desc', followUp: 'asc' };
+// first, teachers A to Z.
+const DEFAULT_SORT_DIR = { date: 'desc', teacher: 'asc', followUp: 'asc' };
 
 // The units of an observation the coach can selectively share with the observed
 // teacher. Leadership can share the whole note (stored as `whole`) or any subset
@@ -47,13 +42,6 @@ const SHAREABLE_SECTIONS = [
 ];
 
 const nid = () => 'ai_' + Math.random().toString(36).slice(2, 9);
-
-function engagementTone(level) {
-  if (level === 'High') return 'green';
-  if (level === 'Medium') return 'brand';
-  if (level === 'Low') return 'red';
-  return 'neutral';
-}
 
 // Teachers have no email field in the demo data, so derive a plausible address
 // from the name. The composer's To field is editable, so this is only a default.
@@ -128,8 +116,6 @@ function emptyForm() {
     time: '',
     lessonObserved: '',
     standard: '',
-    evidence: '',
-    engagementLevel: 'Medium',
     evidenceOfLearning: '',
     teacherActions: '',
     studentActions: '',
@@ -151,7 +137,6 @@ export default function Observations() {
   const writable = can(roleKey, 'write');
 
   const [teacherFilter, setTeacherFilter] = useState('all');
-  const [engagementFilter, setEngagementFilter] = useState('all');
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -244,9 +229,6 @@ export default function Observations() {
         const bv = (teacherName[b.teacherId] || '').toLowerCase();
         return av.localeCompare(bv) * dir;
       }
-      if (sort.key === 'engagement') {
-        return ((ENGAGEMENT_RANK[a.engagementLevel] || 0) - (ENGAGEMENT_RANK[b.engagementLevel] || 0)) * dir;
-      }
       // date-like columns: Date and Follow-up. Blank dates always sort last.
       const av = sort.key === 'followUp' ? a.followUpObservationDate : a.date;
       const bv = sort.key === 'followUp' ? b.followUpObservationDate : b.date;
@@ -262,10 +244,9 @@ export default function Observations() {
       // visits harder to read.
       .filter(isRealObservation)
       .filter((o) => (teacherFilter === 'all' ? true : o.teacherId === teacherFilter))
-      .filter((o) => (engagementFilter === 'all' ? true : o.engagementLevel === engagementFilter))
       .slice()
       .sort(compare);
-  }, [observations, teacherFilter, engagementFilter, sort, teacherName]);
+  }, [observations, teacherFilter, sort, teacherName]);
 
   const viewing = viewId ? observations.find((o) => o.id === viewId) || null : null;
 
@@ -356,8 +337,6 @@ export default function Observations() {
       time: obs.time || '',
       lessonObserved: obs.lessonObserved || '',
       standard: obs.standard || '',
-      evidence: obs.evidence || '',
-      engagementLevel: obs.engagementLevel || 'Medium',
       evidenceOfLearning: obs.evidenceOfLearning || '',
       teacherActions: obs.teacherActions || '',
       studentActions: obs.studentActions || '',
@@ -527,19 +506,6 @@ export default function Observations() {
               </option>
             ))}
           </select>
-          <select
-            className="select"
-            value={engagementFilter}
-            onChange={(e) => setEngagementFilter(e.target.value)}
-            aria-label="Filter by engagement"
-          >
-            <option value="all">All engagement</option>
-            {ENGAGEMENT_LEVELS.map((lvl) => (
-              <option key={lvl} value={lvl}>
-                {lvl}
-              </option>
-            ))}
-          </select>
         </div>
         <div className="row" style={{ gap: 8 }}>
           {writable ? (
@@ -576,7 +542,6 @@ export default function Observations() {
                 <SortHeader label="Teacher" sortKey="teacher" sort={sort} onSort={toggleSort} />
                 <th>Lesson Observed</th>
                 <th>Standard</th>
-                <SortHeader label="Engagement" sortKey="engagement" sort={sort} onSort={toggleSort} />
                 <SortHeader label="Follow-up" sortKey="followUp" sort={sort} onSort={toggleSort} />
                 <th>Actions</th>
               </tr>
@@ -596,11 +561,6 @@ export default function Observations() {
                   </td>
                   <td>{o.lessonObserved || <span className="faint">—</span>}</td>
                   <td>{o.standard || <span className="faint">—</span>}</td>
-                  <td>
-                    <Badge tone={engagementTone(o.engagementLevel)}>
-                      {o.engagementLevel || '—'}
-                    </Badge>
-                  </td>
                   <td>{formatDate(o.followUpObservationDate)}</td>
                   <td>
                     <div className="row" style={{ gap: 6 }}>
@@ -756,7 +716,7 @@ export default function Observations() {
                 </select>
               </Field>
             </div>
-            <div className="form-row form-row--3">
+            <div className="form-row">
               <Field label="Date">
                 <input
                   className="input"
@@ -772,19 +732,6 @@ export default function Observations() {
                   value={form.time}
                   onChange={(e) => setField('time', e.target.value)}
                 />
-              </Field>
-              <Field label="Student engagement level">
-                <select
-                  className="select"
-                  value={form.engagementLevel}
-                  onChange={(e) => setField('engagementLevel', e.target.value)}
-                >
-                  {ENGAGEMENT_LEVELS.map((lvl) => (
-                    <option key={lvl} value={lvl}>
-                      {lvl}
-                    </option>
-                  ))}
-                </select>
               </Field>
             </div>
             <div className="form-row">
@@ -805,13 +752,6 @@ export default function Observations() {
                 />
               </Field>
             </div>
-            <Field label="Evidence">
-              <textarea
-                className="textarea"
-                value={form.evidence}
-                onChange={(e) => setField('evidence', e.target.value)}
-              />
-            </Field>
             <Field label="Evidence of learning">
               <textarea
                 className="textarea"
@@ -1031,10 +971,6 @@ function ViewBody({ obs, teacherName, canShare, shareError, onShareWhole, onShar
       <ReadRow label="Time" value={obs.time} />
       <ReadRow label="Lesson observed" value={obs.lessonObserved} />
       <ReadRow label="Standard taught" value={obs.standard} />
-      <ReadRow label="Student engagement level">
-        <Badge tone={engagementTone(obs.engagementLevel)}>{obs.engagementLevel || '—'}</Badge>
-      </ReadRow>
-      <ReadRow label="Evidence" value={obs.evidence} block />
       <ReadRow label="Evidence of learning" value={obs.evidenceOfLearning} block />
       <ReadRow label="Teacher actions" value={obs.teacherActions} block />
       <ReadRow label="Student actions" value={obs.studentActions} block />

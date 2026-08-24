@@ -39,8 +39,6 @@ const TABS = [
   'Coaching Notes',
 ];
 
-const ENGAGEMENT_TONE = { Low: 'red', Medium: 'yellow', High: 'green' };
-
 export default function TeacherDetail() {
   const { id } = useParams();
   const {
@@ -269,7 +267,7 @@ export default function TeacherDetail() {
         ))}
       </div>
 
-      {tab === 'Overview' && <OverviewTab rollup={rollup} />}
+      {tab === 'Overview' && <OverviewTab rollup={rollup} db={db} writable={writable} />}
       {tab === 'Observations' && <ObservationsTab observations={myObservations} />}
       {tab === 'Pacing' && <PacingTab entries={myPacing} />}
       {tab === 'Assessments' && <AssessmentsTab assessments={myAssessments} />}
@@ -399,9 +397,40 @@ function Stat({ value, label }) {
 // ---------------------------------------------------------------------------
 // Overview
 // ---------------------------------------------------------------------------
-function OverviewTab({ rollup }) {
+function OverviewTab({ rollup, db, writable }) {
+  const { observations, interventions, goals } = useApp();
   const { pacing } = rollup;
   const actions = rollup.outstandingActions;
+  const [actionError, setActionError] = useState(null);
+
+  // Outstanding actions are a read-only rollup flattened across three
+  // sources (see lib/intelligence.js outstandingActions), so completing one
+  // means writing back to whichever record it actually came from.
+  async function completeAction(action) {
+    setActionError(null);
+    try {
+      if (action.source === 'Observation') {
+        const obs = observations.find((o) => o.id === action.sourceId);
+        if (!obs) throw new Error('That observation no longer exists.');
+        const actionItems = (obs.actionItems || []).map((ai) =>
+          ai.id === action.id ? { ...ai, status: 'Complete' } : ai
+        );
+        await db.update('observations', obs.id, { actionItems }, 'completed action item');
+      } else if (action.source === 'Intervention') {
+        const iv = interventions.find((i) => i.id === action.sourceId);
+        if (!iv) throw new Error('That intervention no longer exists.');
+        const agreedActions = (iv.agreedActions || []).map((a) =>
+          a.id === action.id ? { ...a, status: 'Complete' } : a
+        );
+        await db.update('interventions', iv.id, { agreedActions }, 'completed action item');
+      } else if (action.source === 'Goal') {
+        await db.update('goals', action.sourceId, { status: 'Complete' }, 'completed goal');
+      }
+    } catch (err) {
+      setActionError(err.message || 'Could not complete that action. Please try again.');
+    }
+  }
+
   return (
     <div className="grid grid--2">
       <div className="stack">
@@ -449,6 +478,7 @@ function OverviewTab({ rollup }) {
         </Card>
       </div>
       <Card title="Outstanding action items" count={actions.length}>
+        {actionError && <div className="banner banner--danger mb-2">{actionError}</div>}
         {actions.length === 0 ? (
           <Empty icon="✓">No outstanding action items.</Empty>
         ) : (
@@ -456,7 +486,7 @@ function OverviewTab({ rollup }) {
             {actions.map((a) => {
               const overdue = isOverdue(a);
               return (
-                <li key={a.id}>
+                <li key={`${a.source}-${a.id}`}>
                   <span className="check check--todo">✓</span>
                   <span>
                     {a.description}
@@ -472,6 +502,15 @@ function OverviewTab({ rollup }) {
                       )}
                     </span>
                   </span>
+                  {writable && (
+                    <button
+                      className="btn btn--ghost btn--sm"
+                      style={{ marginLeft: 'auto' }}
+                      onClick={() => completeAction(a)}
+                    >
+                      Complete
+                    </button>
+                  )}
                 </li>
               );
             })}
@@ -514,7 +553,6 @@ function ObservationsTab({ observations }) {
               <th>Date</th>
               <th>Lesson</th>
               <th>Standard</th>
-              <th>Engagement</th>
               <th>Notes</th>
               <th>Follow-up</th>
               <th></th>
@@ -526,15 +564,6 @@ function ObservationsTab({ observations }) {
                 <td>{formatDate(o.date)}</td>
                 <td>{o.lessonObserved || '—'}</td>
                 <td>{o.standard || '—'}</td>
-                <td>
-                  {o.engagementLevel ? (
-                    <Badge tone={ENGAGEMENT_TONE[o.engagementLevel] || 'neutral'}>
-                      {o.engagementLevel}
-                    </Badge>
-                  ) : (
-                    '—'
-                  )}
-                </td>
                 <td className="muted small">{excerpt(o.strengths || o.areasForGrowth)}</td>
                 <td>{o.followUpObservationDate ? formatDate(o.followUpObservationDate) : '—'}</td>
                 <td>
@@ -561,11 +590,6 @@ function ObservationsTab({ observations }) {
         >
           <div className="stack">
             <div className="row row--wrap" style={{ gap: 8 }}>
-              {open.engagementLevel && (
-                <Badge tone={ENGAGEMENT_TONE[open.engagementLevel] || 'neutral'}>
-                  Engagement: {open.engagementLevel}
-                </Badge>
-              )}
               {open.sharedWithTeacher?.whole ? (
                 <Badge tone="green">Shared with teacher</Badge>
               ) : (
@@ -574,7 +598,6 @@ function ObservationsTab({ observations }) {
             </div>
             <DetailRow k="Lesson observed" v={open.lessonObserved} />
             <DetailRow k="Standard" v={open.standard} />
-            <DetailRow k="Evidence" v={open.evidence} />
             <DetailRow k="Evidence of learning" v={open.evidenceOfLearning} />
             <DetailRow k="Teacher actions" v={open.teacherActions} />
             <DetailRow k="Student actions" v={open.studentActions} />

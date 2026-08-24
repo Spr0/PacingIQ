@@ -18,7 +18,6 @@ const AppContext = createContext(null);
 
 const EMPTY_COLLECTIONS = {
   teachers: [],
-  scheduleEntries: [],
   observations: [],
   pacingEntries: [],
   assessments: [],
@@ -33,8 +32,7 @@ const EMPTY_COLLECTIONS = {
 // Collections whose rows carry a created_by_id owner column, so inserts get
 // the author stamped automatically (see db.insert below). auditLog is
 // excluded on purpose: it already records the actor by name and is
-// append-only. schedule_entries is excluded because the rotation belongs to
-// the school, not to whoever pressed Randomize.
+// append-only.
 const OWNED_COLLECTIONS = new Set([
   'observations',
   'pacingEntries',
@@ -111,18 +109,6 @@ export function AppProvider({ children }) {
         await store.remove(collection, id);
         if (auditAction) await store.logAudit(user, auditAction, `${collection} ${id}`);
         await refresh();
-      },
-      async replaceSchedule(entries, auditAction) {
-        const rows = await store.replaceSchedule(entries);
-        if (auditAction) await store.logAudit(user, auditAction, `${rows.length} scheduled visit(s)`);
-        await refresh();
-        return rows;
-      },
-      async addScheduleEntries(entries, auditAction) {
-        const rows = await store.addScheduleEntries(entries);
-        if (auditAction) await store.logAudit(user, auditAction, `${rows.length} scheduled visit(s)`);
-        await refresh();
-        return rows;
       },
       async audit(action, detail) {
         await store.logAudit(user, action, detail);

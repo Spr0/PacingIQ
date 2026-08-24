@@ -8,7 +8,6 @@ const NAV = [
   { to: '/', label: 'Dashboard', icon: 'dashboard', end: true },
   { to: '/teachers', label: 'Teachers', icon: 'teachers' },
   { to: '/observations', label: 'Observations', icon: 'observations' },
-  { to: '/schedule', label: 'Schedule', icon: 'shuffle' },
   { to: '/pacing', label: 'Pacing', icon: 'pacing' },
   { to: '/interventions', label: 'Interventions', icon: 'interventions' },
   { to: '/report', label: 'Impact Report', icon: 'report' },
@@ -19,7 +18,6 @@ const NAV = [
 const TITLES = {
   '/teachers': ['Teachers', 'Roster and individual records'],
   '/observations': ['Observations', 'Classroom visits and feedback'],
-  '/schedule': ['Schedule', 'Randomized observation rotation'],
   '/pacing': ['Pacing', 'Weekly pacing status and exceptions'],
   '/interventions': ['Interventions', 'Cases, action plans, and follow-up'],
   '/report': ['Coaching Impact Report', 'Single-page school health view'],
