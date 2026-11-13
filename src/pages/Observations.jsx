@@ -128,6 +128,37 @@ function emptyForm() {
   };
 }
 
+// Starts a new observation from an existing one, so a coach catching up on
+// write-ups does not retype the same lesson, look-fors, and action steps for
+// every classroom. The narrative and action-step wording carry over; anything
+// that identifies one particular visit does not:
+//   - Teacher and date are cleared and must be picked again. A copied date
+//     would quietly count toward the 14-day "seen" window for whichever
+//     teacher it landed on, and that window is what this app exists to track.
+//   - Attachments are never copied. Blobs are filed under the source record,
+//     and deleting either record deletes them, so a shared key would let one
+//     delete wipe evidence the other still points at.
+//   - Action-step due dates and statuses reset: they belong to the source
+//     visit's timeline, not this one.
+//   - Sharing is not carried: save() always inserts a new record unshared.
+function formFromTemplate(src) {
+  return {
+    ...emptyForm(),
+    date: '',
+    lessonObserved: src.lessonObserved || '',
+    standard: src.standard || '',
+    evidenceOfLearning: src.evidenceOfLearning || '',
+    teacherActions: src.teacherActions || '',
+    studentActions: src.studentActions || '',
+    strengths: src.strengths || '',
+    areasForGrowth: src.areasForGrowth || '',
+    feedbackProvided: src.feedbackProvided || '',
+    actionItems: (src.actionItems || [])
+      .filter((ai) => ai.description)
+      .map((ai) => ({ id: nid(), description: ai.description, owner: ai.owner || '', dueDate: '', status: 'Open' })),
+  };
+}
+
 function newActionItem() {
   return { id: nid(), description: '', owner: '', dueDate: '', status: 'Open' };
 }
@@ -144,6 +175,9 @@ export default function Observations() {
   const [attachmentError, setAttachmentError] = useState(null);
   const [saveError, setSaveError] = useState(null);
   const [saving, setSaving] = useState(false);
+  // Set when the open form was started from another observation; drives the
+  // review-before-saving banner. Null for a blank or edit form.
+  const [templateSource, setTemplateSource] = useState(null);
   // Surfaced inside the view modal when a share toggle is refused. Separate
   // from saveError, which belongs to the edit form.
   const [shareError, setShareError] = useState(null);
@@ -325,6 +359,7 @@ export default function Observations() {
     setRemovedKeys([]);
     setAttachmentError(null);
     setSaveError(null);
+    setTemplateSource(null);
     setFormOpen(true);
   }
 
@@ -358,6 +393,20 @@ export default function Observations() {
     setViewId(null);
     setAttachmentError(null);
     setSaveError(null);
+    setTemplateSource(null);
+    setFormOpen(true);
+  }
+
+  // `label` names where the copy came from, for the banner.
+  function openFromTemplate(src, label) {
+    setEditingId(null);
+    setForm(formFromTemplate(src));
+    setPendingKeys([]);
+    setRemovedKeys([]);
+    setViewId(null);
+    setAttachmentError(null);
+    setSaveError(null);
+    setTemplateSource(label);
     setFormOpen(true);
   }
 
@@ -372,6 +421,7 @@ export default function Observations() {
     setRemovedKeys([]);
     setAttachmentError(null);
     setSaveError(null);
+    setTemplateSource(null);
   }
 
   // Cancels the form: newly uploaded attachments that were never saved to a
@@ -408,7 +458,11 @@ export default function Observations() {
   // value Postgres rejects, a dropped connection -- surfaces as an error the
   // user can see and keeps the form open with their notes intact, instead of
   // the modal closing as if it saved while the record silently never landed.
-  async function save() {
+  //
+  // With `startAnother`, a successful save of a NEW observation reopens the
+  // form pre-filled from what was just saved, for working through a backlog.
+  // A failed save never reopens: the form stays as typed, with the error.
+  async function save(startAnother = false) {
     if (!canSave() || saving) return;
     setSaving(true);
     setSaveError(null);
@@ -424,7 +478,12 @@ export default function Observations() {
       }
       // Now that the record no longer references them, the removed blobs are safe to delete.
       removedKeys.forEach((key) => deleteAttachment(key));
-      resetFormUI();
+      if (startAnother && !editingId) {
+        const who = teacherName[form.teacherId] || 'the last teacher';
+        openFromTemplate(form, `the observation you just saved for ${who}`);
+      } else {
+        resetFormUI();
+      }
     } catch (err) {
       setSaveError(err.message || 'Failed to save this observation. Please try again.');
     } finally {
@@ -589,6 +648,19 @@ export default function Observations() {
                           Email
                         </button>
                       )}
+                      {writable && (
+                        <button
+                          className="btn btn--sm btn--ghost"
+                          onClick={() =>
+                            openFromTemplate(
+                              o,
+                              `${teacherName[o.teacherId] || 'Unknown'}'s observation on ${formatDate(o.date)}`
+                            )
+                          }
+                        >
+                          Use as template
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -692,13 +764,25 @@ export default function Observations() {
               <button className="btn btn--ghost" onClick={closeForm}>
                 Cancel
               </button>
-              <button className="btn btn--primary" onClick={save} disabled={!canSave() || saving}>
+              {!editingId && (
+                <button className="btn" onClick={() => save(true)} disabled={!canSave() || saving}>
+                  Save &amp; start another
+                </button>
+              )}
+              <button className="btn btn--primary" onClick={() => save()} disabled={!canSave() || saving}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </>
           }
         >
           <div className="stack">
+            {templateSource && (
+              <div className="banner banner--warn">
+                Started from {templateSource}. Pick the teacher and date, then review every field
+                before saving: the feedback text was written for another visit. Attachments,
+                due dates, and sharing were not copied.
+              </div>
+            )}
             <div className="section-title">Observation Information</div>
             <div className="form-row">
               <Field label="Teacher">
