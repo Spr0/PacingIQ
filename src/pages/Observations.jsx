@@ -132,19 +132,21 @@ function emptyForm() {
 // write-ups does not retype the same lesson, look-fors, and action steps for
 // every classroom. The narrative and action-step wording carry over; anything
 // that identifies one particular visit does not:
-//   - Teacher and date are cleared and must be picked again. A copied date
-//     would quietly count toward the 14-day "seen" window for whichever
-//     teacher it landed on, and that window is what this app exists to track.
+//   - Teacher is cleared and must be picked again.
+//   - Date defaults to today for "Use as template", since the source's date
+//     belongs to an older visit. "Save & start another" passes keepDate and
+//     keeps the date just saved instead: when catching up, the next visit is
+//     usually from the same day, and re-picking it every time was busywork.
 //   - Attachments are never copied. Blobs are filed under the source record,
 //     and deleting either record deletes them, so a shared key would let one
 //     delete wipe evidence the other still points at.
 //   - Action-step due dates and statuses reset: they belong to the source
 //     visit's timeline, not this one.
 //   - Sharing is not carried: save() always inserts a new record unshared.
-function formFromTemplate(src) {
+function formFromTemplate(src, { keepDate = false } = {}) {
   return {
     ...emptyForm(),
-    date: '',
+    date: keepDate && src.date ? src.date : isoDate(),
     lessonObserved: src.lessonObserved || '',
     standard: src.standard || '',
     evidenceOfLearning: src.evidenceOfLearning || '',
@@ -398,9 +400,9 @@ export default function Observations() {
   }
 
   // `label` names where the copy came from, for the banner.
-  function openFromTemplate(src, label) {
+  function openFromTemplate(src, label, opts) {
     setEditingId(null);
-    setForm(formFromTemplate(src));
+    setForm(formFromTemplate(src, opts));
     setPendingKeys([]);
     setRemovedKeys([]);
     setViewId(null);
@@ -480,7 +482,7 @@ export default function Observations() {
       removedKeys.forEach((key) => deleteAttachment(key));
       if (startAnother && !editingId) {
         const who = teacherName[form.teacherId] || 'the last teacher';
-        openFromTemplate(form, `the observation you just saved for ${who}`);
+        openFromTemplate(form, `the observation you just saved for ${who}`, { keepDate: true });
       } else {
         resetFormUI();
       }
@@ -568,9 +570,14 @@ export default function Observations() {
         </div>
         <div className="row" style={{ gap: 8 }}>
           {writable ? (
-            <button className="btn btn--primary" onClick={openNew}>
-              New Observation
-            </button>
+            <>
+              <Link className="btn" to="/observations/batch">
+                Log several visits
+              </Link>
+              <button className="btn btn--primary" onClick={openNew}>
+                New Observation
+              </button>
+            </>
           ) : (
             <span className="muted small">View only. Editing is limited to the coach role.</span>
           )}
@@ -778,9 +785,9 @@ export default function Observations() {
           <div className="stack">
             {templateSource && (
               <div className="banner banner--warn">
-                Started from {templateSource}. Pick the teacher and date, then review every field
-                before saving: the feedback text was written for another visit. Attachments,
-                due dates, and sharing were not copied.
+                Started from {templateSource}. Pick the teacher and check the date, then review
+                every field before saving: the feedback text was written for another visit.
+                Attachments, due dates, and sharing were not copied.
               </div>
             )}
             <div className="section-title">Observation Information</div>

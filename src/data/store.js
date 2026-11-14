@@ -241,6 +241,21 @@ export async function remove(collection, id) {
   check(`remove(${collection})`, error);
 }
 
+// Deletes many rows in ONE request and returns how many actually went. An RLS
+// delete policy that refuses doesn't raise -- it just matches nothing -- so the
+// count is the only honest signal that the rows are gone. Callers compare it
+// with what they asked for instead of assuming success.
+export async function removeMany(collection, ids) {
+  if (!ids.length) return 0;
+  const { data, error } = await supabase
+    .from(tableFor(collection))
+    .delete()
+    .in('id', ids)
+    .select('id');
+  check(`removeMany(${collection})`, error);
+  return (data || []).length;
+}
+
 // Fetches every collection in parallel. Replaces the old synchronous
 // "one localStorage blob" read; callers now await this once on load and
 // after any mutation that needs a full refresh (most mutations instead

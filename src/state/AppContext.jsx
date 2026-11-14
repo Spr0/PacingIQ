@@ -110,6 +110,14 @@ export function AppProvider({ children }) {
         if (auditAction) await store.logAudit(user, auditAction, `${collection} ${id}`);
         await refresh();
       },
+      // One request for many deletes. Returns the number actually removed,
+      // which can be fewer than asked if RLS refused some (see store.js).
+      async removeMany(collection, ids, auditAction) {
+        const removed = await store.removeMany(collection, ids);
+        if (auditAction) await store.logAudit(user, auditAction, `${collection}: ${removed} row(s)`);
+        await refresh();
+        return removed;
+      },
       async audit(action, detail) {
         await store.logAudit(user, action, detail);
         await refresh();

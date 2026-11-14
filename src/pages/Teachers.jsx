@@ -5,7 +5,7 @@
 // ---------------------------------------------------------------------------
 
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../state/AppContext.jsx';
 import { can, canDeleteRecord } from '../lib/permissions.js';
 import { pacingStatus, gradeRank } from '../lib/intelligence.js';
@@ -52,6 +52,10 @@ export default function Teachers() {
   const [saving, setSaving] = useState(false);
   const [sort, setSort] = useState({ key: 'name', dir: 'asc' });
   const [listError, setListError] = useState(null);
+  // Teachers ticked for "Log visits". Kept across filter and search changes,
+  // so a selection can be built up from more than one filtered view.
+  const [selected, setSelected] = useState(() => new Set());
+  const navigate = useNavigate();
 
   function toggleSort(key) {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: DEFAULT_SORT_DIR[key] }));
@@ -125,6 +129,42 @@ export default function Teachers() {
     };
     return filtered.slice().sort(compare);
   }, [filtered, sort]);
+
+  const visibleIds = sorted.map((r) => r.teacher.id);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selected.has(id));
+
+  function toggleSelected(id) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (allVisibleSelected) visibleIds.forEach((id) => next.delete(id));
+      else visibleIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  // Ids go in the roster's current order so the batch lists teachers the way
+  // they were picked. A teacher deleted since being ticked is dropped.
+  function logVisits() {
+    const inOrder = rollups
+      .map((r) => r.teacher.id)
+      .filter((id) => selected.has(id));
+    const visibleFirst = [
+      ...visibleIds.filter((id) => selected.has(id)),
+      ...inOrder.filter((id) => !visibleIds.includes(id)),
+    ];
+    if (!visibleFirst.length) return;
+    navigate(`/observations/batch?teachers=${visibleFirst.join(',')}`);
+  }
 
   function openModal() {
     setForm(EMPTY_FORM);
@@ -224,6 +264,20 @@ export default function Teachers() {
           <table className="table">
             <thead>
               <tr>
+                {writable && (
+                  <th style={{ width: 36, paddingRight: 0 }}>
+                    <input
+                      type="checkbox"
+                      className="roster-check"
+                      checked={allVisibleSelected}
+                      ref={(el) => {
+                        if (el) el.indeterminate = someVisibleSelected && !allVisibleSelected;
+                      }}
+                      onChange={toggleAllVisible}
+                      aria-label="Select every teacher shown"
+                    />
+                  </th>
+                )}
                 <SortHeader label="Teacher" sortKey="name" sort={sort} onSort={toggleSort} />
                 <SortHeader label="Subject" sortKey="subject" sort={sort} onSort={toggleSort} />
                 <SortHeader label="Grade" sortKey="gradeLevel" sort={sort} onSort={toggleSort} />
@@ -249,6 +303,17 @@ export default function Teachers() {
                   r.daysBehind > 0 ? `${r.daysBehind}d behind` : null;
                 return (
                   <tr key={t.id}>
+                    {writable && (
+                      <td style={{ paddingRight: 0 }}>
+                        <input
+                          type="checkbox"
+                          className="roster-check"
+                          checked={selected.has(t.id)}
+                          onChange={() => toggleSelected(t.id)}
+                          aria-label={`Select ${t.name}`}
+                        />
+                      </td>
+                    )}
                     <td>
                       <Link className="tname" to={`/teachers/${t.id}`}>
                         {t.name}
@@ -304,6 +369,25 @@ export default function Teachers() {
           </table>
         )}
       </Card>
+
+      {writable && selected.size > 0 && (
+        <div className="batch-bar">
+          <span className="small">
+            <strong>{selected.size}</strong> teacher{selected.size === 1 ? '' : 's'} selected
+            {selected.size > visibleIds.filter((id) => selected.has(id)).length && (
+              <span className="muted"> (some hidden by the current filter)</span>
+            )}
+          </span>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn btn--ghost" onClick={() => setSelected(new Set())}>
+              Clear
+            </button>
+            <button className="btn btn--primary" onClick={logVisits}>
+              Log visits →
+            </button>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <Modal

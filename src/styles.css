@@ -649,3 +649,34 @@ a.rotchip:hover { border-color: var(--border-default); background: var(--surface
   .queue__row, .coming__row, .glance__row { break-inside: avoid; }
   .queue { --queue-cols: minmax(0, 1.7fr) 96px 76px 100px 88px 68px; }
 }
+
+/* ---------- Log visits (batch observations) ----------
+   Inherited cells read grey so the eye lands on what was changed for one
+   teacher; a changed cell gets full-strength text and a brand edge. The table
+   scrolls sideways in .draft-scroll rather than crushing its inputs. */
+.table--batch { table-layout: fixed; min-width: 900px; }
+.table--batch th, .table--batch td { padding-left: 8px; padding-right: 8px; vertical-align: top; }
+.table--batch th:first-child, .table--batch td:first-child { padding-left: 16px; }
+.table--batch th:last-child, .table--batch td:last-child { padding-right: 16px; }
+.table--batch .input { padding-left: 8px; padding-right: 6px; }
+.table--batch tbody tr:hover { background: transparent; }
+.table--batch .tname { font-weight: var(--fw-semibold); color: var(--text-strong); padding-top: 8px; }
+.batch-detail td { background: var(--surface-sunken); }
+.batch-textarea { min-height: 72px; }
+.batch-inherit { color: var(--text-muted); }
+.batch-override { color: var(--text-strong); border-left: 3px solid var(--brand-interactive); }
+.batch-bar {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; background: var(--surface-card);
+  border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+  box-shadow: 0 -4px 12px rgba(26, 23, 34, 0.06);
+}
+.linklike {
+  background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+  color: var(--text-link); text-decoration: underline;
+}
+.roster-check { width: 16px; height: 16px; cursor: pointer; accent-color: var(--brand-interactive); }
+@media print { .batch-bar { display: none !important; } }
+.batch-item-row { display: grid; gap: 10px; grid-template-columns: 2fr 1fr 1fr auto; align-items: center; }
+@media (max-width: 720px) { .batch-item-row { grid-template-columns: 1fr; } }
